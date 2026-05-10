@@ -1,0 +1,14 @@
+{
+  "name": "@linux-mt5/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@linux-mt5/shared": "workspace:*",
+    "zod": "^4.1.13"
+  }
+}

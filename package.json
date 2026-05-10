@@ -1,0 +1,28 @@
+{
+  "name": "linux-mt5",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun --filter @linux-mt5/web dev",
+    "dev:server": "bun --filter @linux-mt5/server dev",
+    "dev:web": "bun --filter @linux-mt5/web dev",
+    "build": "bun --filter '*' build",
+    "test": "bun test",
+    "typecheck": "tsc -b",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/bun": "^1.3.5",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.1"
+  }
+}

@@ -1,0 +1,409 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono",
+    monospace;
+  background: #0d0f0d;
+  color: #f0eee6;
+  --panel: #171914;
+  --panel-strong: #20231d;
+  --line: #363a2f;
+  --muted: #a4a08f;
+  --text: #f0eee6;
+  --amber: #e9b44c;
+  --green: #6fbf73;
+  --red: #df725f;
+  --steel: #8aa4b8;
+  --shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    #0d0f0d;
+  background-size: 36px 36px;
+}
+
+button {
+  font: inherit;
+}
+
+.shell {
+  min-height: 100vh;
+  padding: 10px;
+}
+
+.topbar,
+.workspace,
+.log-dock,
+.error-strip {
+  margin: 0 auto;
+  max-width: 100%;
+}
+
+.topbar {
+  align-items: center;
+  background: rgba(23, 25, 20, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+}
+
+.brand-block,
+.state-block {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.brand-mark {
+  align-items: center;
+  background: #ebe4d0;
+  border-radius: 6px;
+  color: #10120f;
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.eyebrow {
+  color: var(--amber);
+  font-size: 12px;
+  letter-spacing: 0;
+  margin: 0 0 3px;
+}
+
+h1,
+h2 {
+  letter-spacing: 0;
+  margin: 0;
+}
+
+h1 {
+  font-size: 20px;
+  line-height: 1;
+}
+
+h2 {
+  color: #e8e0c8;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.status-pill {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 128px;
+  padding: 6px 8px;
+}
+
+.status-pill span {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.status-pill strong {
+  color: var(--steel);
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.status-pill-good strong {
+  color: var(--green);
+}
+
+.status-pill-warn strong {
+  color: var(--amber);
+}
+
+.status-pill-bad strong {
+  color: var(--red);
+}
+
+.error-strip {
+  align-items: center;
+  background: rgba(94, 31, 24, 0.88);
+  border: 1px solid rgba(223, 114, 95, 0.55);
+  border-radius: 8px;
+  color: #ffe7df;
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 11px 14px;
+}
+
+.workspace {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(250px, 290px) minmax(0, 1fr);
+  margin-top: 10px;
+}
+
+.control-panel,
+.desktop-panel,
+.log-dock {
+  background: rgba(23, 25, 20, 0.94);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 78px);
+  overflow: auto;
+  padding: 10px;
+}
+
+.panel-section {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.panel-section:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.button-grid {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 9px;
+}
+
+.action-button,
+.secondary-button {
+  align-items: center;
+  background: #ece3cd;
+  border: 0;
+  border-radius: 6px;
+  color: #11140f;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 36px;
+  padding: 8px;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
+  width: 100%;
+}
+
+.action-button:hover:not(:disabled),
+.secondary-button:hover {
+  background: #f5c65e;
+  transform: translateY(-1px);
+}
+
+.action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.secondary-button {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+  margin-top: 9px;
+}
+
+.details {
+  display: grid;
+  gap: 7px;
+  margin: 9px 0 0;
+}
+
+.details div {
+  background: var(--panel-strong);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.details dt {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.details dd {
+  color: #f6f0de;
+  font-size: 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-input {
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  display: block;
+  font: inherit;
+  margin-top: 9px;
+  padding: 7px;
+  width: 100%;
+}
+
+.upload-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 10px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.file-list {
+  color: #f6f0de;
+  font-size: 11px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.file-list li {
+  background: var(--panel-strong);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 5px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+}
+
+.desktop-panel {
+  min-height: calc(100vh - 78px);
+  overflow: hidden;
+}
+
+.desktop-frame {
+  background: #050604;
+  border: 0;
+  display: block;
+  height: 100%;
+  min-height: calc(100vh - 78px);
+  width: 100%;
+}
+
+.log-dock {
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.log-dock header {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 10px;
+}
+
+.log-dock header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.log-list {
+  max-height: 150px;
+  overflow: auto;
+  padding: 6px 10px 8px;
+}
+
+.log-line,
+.log-empty {
+  align-items: baseline;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 82px minmax(0, 1fr);
+  margin: 0;
+  padding: 5px 0;
+}
+
+.log-line time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.log-line span,
+.log-empty {
+  color: #ddd5bd;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.log-good span {
+  color: #bfe7bc;
+}
+
+.log-bad span {
+  color: #ffc4b7;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 900px) {
+  .topbar,
+  .state-block {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .state-block {
+    width: 100%;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .desktop-panel,
+  .desktop-frame {
+    min-height: 58vh;
+  }
+}
+
+@media (max-width: 560px) {
+  .shell {
+    padding: 10px;
+  }
+
+  .button-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .log-line,
+  .log-empty {
+    grid-template-columns: 1fr;
+  }
+}
