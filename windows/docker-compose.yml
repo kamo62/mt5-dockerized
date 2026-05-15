@@ -1,0 +1,25 @@
+services:
+  windows-mt5:
+    image: dockurr/windows
+    container_name: windows-mt5
+    environment:
+      VERSION: "10l"
+      DISK_SIZE: "64G"
+      RAM_SIZE: "4G"
+      CPU_CORES: "4"
+      USERNAME: "${WINDOWS_USERNAME:-user}"
+      PASSWORD: "${WINDOWS_PASSWORD:?Set WINDOWS_PASSWORD in your environment or .env file}"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "${WINDOWS_WEB_PORT:-18006}:8006"
+      - "${WINDOWS_RDP_PORT:-13389}:3389/tcp"
+      - "${WINDOWS_RDP_PORT:-13389}:3389/udp"
+    volumes:
+      - "${WINDOWS_DATA_DIR:-./windows-mt5-data}:/storage"
+      - "${WINDOWS_SHARED_DIR:-./windows-mt5-shared}:/shared"
+    restart: unless-stopped
+    stop_grace_period: 2m
