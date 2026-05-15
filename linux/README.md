@@ -112,9 +112,13 @@ configured via `MT5_DATA_DIR`.
 
 ## Expert Advisors
 
-After MT5 has launched once, the control UI exposes an `Expert Advisors`
-upload panel. Uploads are written directly into the active terminal data
-folder under `MQL5/Experts`, for example:
+Expert Advisors do **not** run reliably under Wine. Most EAs depend on Windows
+DLLs, kernel32 calls, or anti-tampering checks that Wine cannot satisfy. Use
+the Windows setup (`../windows/`) if you need EA support.
+
+The upload endpoint is still available for compiled indicators and scripts
+(`.ex5`). Files are written into the active terminal data folder under
+`MQL5/Experts`:
 
 ```text
 /data/wine-prefix/.mt5/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/<terminal-id>/MQL5/Experts

@@ -24,8 +24,10 @@ windows/
 ## Recommendation
 
 Use the Windows setup for Expert Advisors, broker-specific installers, and full
-desktop compatibility. The Linux/Wine setup can run MT5 and remains useful as a
-lightweight fallback, but Wine compatibility can be limiting for EA workflows.
+desktop compatibility. Expert Advisors are **not** reliable under Wine — DLL
+imports, anti-debug checks, and Windows-specific API calls used by most EAs
+will fail. The Linux/Wine setup is useful as a lightweight terminal-only
+fallback for charting and manual trading.
 
 ## Which MT5?
 
