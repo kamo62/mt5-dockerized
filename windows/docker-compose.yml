@@ -3,10 +3,10 @@ services:
     image: dockurr/windows
     container_name: windows-mt5
     environment:
-      VERSION: "10l"
-      DISK_SIZE: "64G"
-      RAM_SIZE: "4G"
-      CPU_CORES: "4"
+      VERSION: "${WINDOWS_VERSION:-11}"
+      DISK_SIZE: "${WINDOWS_DISK_SIZE:-64G}"
+      RAM_SIZE: "${WINDOWS_RAM_SIZE:-4G}"
+      CPU_CORES: "${WINDOWS_CPU_CORES:-4}"
       USERNAME: "${WINDOWS_USERNAME:-user}"
       PASSWORD: "${WINDOWS_PASSWORD:?Set WINDOWS_PASSWORD in your environment or .env file}"
     devices:
@@ -19,7 +19,8 @@ services:
       - "${WINDOWS_RDP_PORT:-13389}:3389/tcp"
       - "${WINDOWS_RDP_PORT:-13389}:3389/udp"
     volumes:
-      - "${WINDOWS_DATA_DIR:-./windows-mt5-data}:/storage"
+      - "${WINDOWS_DATA_DIR:-./windows11-mt5-data}:/storage"
       - "${WINDOWS_SHARED_DIR:-./windows-mt5-shared}:/shared"
+      - "${WINDOWS_OEM_DIR:-./oem}:/oem"
     restart: unless-stopped
     stop_grace_period: 2m

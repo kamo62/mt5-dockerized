@@ -10,8 +10,9 @@ linux/
   Wine-based Linux MT5 desktop with Bun/React control UI and EA upload support.
 
 windows/
-  Windows 10 LTSC setup using dockur/windows (github.com/dockur/windows)
-  for full Windows MT5 compatibility.
+  Windows 11 setup using dockur/windows (github.com/dockur/windows)
+  for full Windows MT5 compatibility, with a first-boot Winutil Standard
+  preset for Windows 11 cleanup.
 ```
 
 ## Storage Requirements
@@ -19,7 +20,7 @@ windows/
 | Setup   | Approximate Disk | Notes |
 |---------|------------------|-------|
 | Linux   | 3–8 GB           | Docker image (~2 GB) + Wine prefix + MT5 data |
-| Windows | 12–20 GB         | Full Windows 10 LTSC install + MT5 data |
+| Windows | 12–20 GB         | Full Windows 11 install + MT5 data |
 
 ## Recommendation
 
@@ -46,6 +47,8 @@ Both setups use environment variables for paths and ports. See the
 ## Getting Started
 
 - **Linux/Wine**: See `linux/README.md`.
-- **Windows 10 LTSC**: See `windows/README.md`. Note that a Windows password
+- **Windows 11**: See `windows/README.md`. Note that a Windows password
   **must** be provided via `WINDOWS_PASSWORD` — the container will refuse to
-  start without one.
+  start without one. When changing from the old Windows 10 LTSC evaluation VM,
+  use a fresh Windows data directory because the Docker storage is a bind mount
+  containing the persisted VM disk.
