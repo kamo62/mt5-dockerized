@@ -10,6 +10,11 @@ on Linux through Wine, and the MT5 installer remains a GUI installer. The Docker
 image therefore installs Wine and the desktop runtime, while the MT5 installer
 runs on first use inside the browser desktop and persists into a Docker volume.
 
+![Linux MT5 control UI](../docs/control-ui.png)
+
+*The control surface: install / launch / stop / restart, runtime status, EA
+upload, the embedded noVNC desktop (blurred here), and a live runtime log.*
+
 ## Architecture
 
 ```text
@@ -43,7 +48,10 @@ Runtime processes:
 
 ## Quick Start
 
-Install dependencies and verify the app:
+Only Docker with Compose v2 is required to run the container — the image build
+installs Bun, Wine, and the desktop runtime itself. The Bun steps below are
+**optional** local checks for development before building the image, and need
+Bun on the host only if you run them:
 
 ```bash
 bun install
@@ -75,7 +83,8 @@ Open:
 
 ## Home Server Deployment
 
-Set environment variables or create a `.env` file at the project root before
+Set environment variables, or create a `.env` file in `linux/` next to
+`docker-compose.yml` (that is where Docker Compose reads it from), before
 deploying:
 
 ```text
@@ -220,11 +229,18 @@ generated EA preset after the prefix is removed. For example,
 `MT5_EA_LinkCode` becomes `LinkCode=...` in
 `MQL5/Presets/TelegramTC_EA.set`.
 
-For a different custom EA, upload or mount the compiled `.ex5` into
-`MQL5/Experts`, set `MT5_STARTUP_EXPERT` to the file name without `.ex5`, set
-`MT5_STARTUP_SYMBOL` and `MT5_STARTUP_PERIOD` for the chart that should open,
-set `MT5_STARTUP_PRESET` if the EA should load a preset file, and add one local
-override environment entry per EA input using `MT5_EA_<InputName>`.
+The example above is for one specific EA (`TelegramTC_EA`); its `MT5_EA_*` lines
+are that EA's own inputs. To autoload **your own** EA instead:
+
+1. Upload or mount the compiled `.ex5` into `MQL5/Experts`.
+2. Set `MT5_STARTUP_EXPERT` to the file name without `.ex5`.
+3. Set `MT5_STARTUP_SYMBOL` and `MT5_STARTUP_PERIOD` for the chart that should
+   open.
+4. Set `MT5_STARTUP_PRESET` if the EA should load a preset file.
+5. Add one local override entry per EA input using `MT5_EA_<InputName>` (the
+   prefix is stripped, so `MT5_EA_LinkCode` becomes `LinkCode=` in the preset).
+6. Recreate the container with `docker compose up -d` to apply the new
+   `[StartUp]` block.
 
 ## Configuration
 

@@ -11,6 +11,12 @@ The Windows container in `windows/` is still available, but treat it as the
 fallback. Use it only when you really need Windows compatibility, because it
 uses multiple GB of RAM compared with the much lighter Linux/Wine setup.
 
+![Linux MT5 control UI](docs/control-ui.png)
+
+*The Linux control UI: install / launch / stop / restart controls, runtime
+status, EA upload, the embedded noVNC desktop (blurred here), and a live
+runtime log.*
+
 ## Layout
 
 ```text
@@ -117,7 +123,9 @@ EA-specific `MT5_STARTUP_*` and `MT5_EA_*` variables. Keep those in a local
 `linux/docker-compose.override.yml` file so link codes, account-specific inputs,
 and EA settings stay out of git.
 
-Example local override:
+Example local override. This is a worked example for one specific EA named
+`TelegramTC_EA`; the `MT5_EA_*` lines are that EA's own inputs. Replace the
+expert name, symbol, period, preset, and inputs with your own EA's values:
 
 ```yaml
 services:
@@ -129,6 +137,7 @@ services:
       MT5_STARTUP_PERIOD: "H1"
       MT5_STARTUP_PRESET: "TelegramTC_EA.set"
       MT5_PRELOAD_CHARTS: "0"
+      # Example EA-specific inputs — your EA will have different ones:
       MT5_EA_BackendBaseUrl: "http://<HOST-IP>:18787/api"
       MT5_EA_LinkCode: "<link-code-from-the-app>"
       MT5_EA_PollSeconds: "1"
@@ -140,6 +149,22 @@ writes the preset under `MQL5/Presets`, and launches MT5 with
 `/config:<active common.ini>` so MetaTrader executes the `[StartUp]` block.
 `MaxBars` is pinned to `5000` by the app when startup config management is
 enabled.
+
+### Adding your own EA to startup
+
+1. Get the compiled EA into `MQL5/Experts` — upload the `.ex5` through the
+   control UI (see [EA Uploads](#ea-uploads)), or mount it into the container.
+2. Set `MT5_STARTUP_CONFIG: "true"` and `MT5_STARTUP_EXPERT` to the EA's file
+   name **without** the `.ex5` extension.
+3. Set `MT5_STARTUP_SYMBOL` and `MT5_STARTUP_PERIOD` to the chart the EA should
+   open on (for example `XAUUSDr` and `H1`).
+4. If the EA loads a preset, set `MT5_STARTUP_PRESET` to a `.set` file name.
+5. Add one line per EA input as `MT5_EA_<InputName>`. The app strips the
+   `MT5_EA_` prefix and writes the rest into the generated preset, so
+   `MT5_EA_LinkCode: "ABC123"` becomes `LinkCode=ABC123` in
+   `MQL5/Presets/<preset>.set`.
+6. Recreate the container with `docker compose up -d` so the new `[StartUp]`
+   block is applied.
 
 ## Installer Choice
 
@@ -166,7 +191,17 @@ in this setup.
 
 ## Running Linux
 
-From `linux/`:
+From `linux/`. The only thing you need on the host to run the container is
+Docker with Compose v2 — the image build installs Bun, Wine, and the desktop
+runtime itself:
+
+```bash
+docker compose up -d --build
+```
+
+The Bun commands below are **optional**. They are for local development and for
+verifying the app before building the image; you do not need Bun installed on
+the host just to run the container:
 
 ```bash
 bun install
@@ -174,7 +209,6 @@ bun test
 bun run typecheck
 bun run lint
 bun run build
-docker compose up -d --build
 ```
 
 Useful Linux environment variables:
@@ -190,6 +224,10 @@ ENABLE_AUDIO=false
 MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/12040/mt5/hfmarketssa5setup.exe
 MT5_INSTALL_WEBVIEW2=false
 ```
+
+This is a subset. See `linux/README.md` for the full list, including
+`AUTO_LAUNCH_MT5`, the Wine/WebView2 timeout knobs, and
+`WEBSOCKIFY_HEARTBEAT_SECONDS`.
 
 For multiple MT5 accounts, run multiple Linux containers with different
 container names, ports, and `MT5_DATA_DIR` values. Keep each account's autoload
@@ -209,3 +247,12 @@ the persisted VM disk.
 
 - Linux setup: `linux/README.md`
 - Windows setup: `windows/README.md`
+
+## License
+
+Free for non-commercial use — personal, private, internal, educational, and
+evaluation use, including modifying and self-hosting your own copy. Commercial
+use (reselling or redistributing for a fee, offering it as a paid product or
+hosted/managed service, or bundling it into something you monetize) requires a
+separate commercial license from the copyright holder. See [`LICENSE`](LICENSE)
+for the full terms.
