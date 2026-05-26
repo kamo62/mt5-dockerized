@@ -1,54 +1,211 @@
 # MT5 Dockerized
 
-This repository contains two Docker approaches for running MetaTrader 5 from a
-home server or any Linux host.
+Current release: `1.0.0`.
+
+This repo runs MetaTrader 5 from Docker. The current preferred setup is the
+Linux/Wine container in `linux/`: it gives you a browser-accessible MT5 desktop,
+a small control UI, EA upload support, optional EA autoload through MT5's own
+`common.ini`, and a raw VNC endpoint for local streaming tools.
+
+The Windows container in `windows/` is still available, but treat it as the
+fallback. Use it only when you really need Windows compatibility, because it
+uses multiple GB of RAM compared with the much lighter Linux/Wine setup.
 
 ## Layout
 
 ```text
 linux/
-  Wine-based Linux MT5 desktop with Bun/React control UI and EA upload support.
+  Wine-based MT5 desktop with Bun/React control UI, noVNC, raw VNC, and EA
+  upload support.
 
 windows/
-  Windows 11 setup using dockur/windows (github.com/dockur/windows)
-  for full Windows MT5 compatibility, with a first-boot Winutil Standard
-  preset for Windows 11 cleanup.
+  Windows 11 setup using dockur/windows for full Windows MT5 compatibility.
 ```
-
-## Storage Requirements
-
-| Setup   | Approximate Disk | Notes |
-|---------|------------------|-------|
-| Linux   | 3–8 GB           | Docker image (~2 GB) + Wine prefix + MT5 data |
-| Windows | 12–20 GB         | Full Windows 11 install + MT5 data |
 
 ## Recommendation
 
-Use the Windows setup for Expert Advisors, broker-specific installers, and full
-desktop compatibility. Expert Advisors are **not** reliable under Wine — DLL
-imports, anti-debug checks, and Windows-specific API calls used by most EAs
-will fail. The Linux/Wine setup is useful as a lightweight terminal-only
-fallback for charting and manual trading.
+Start with Linux/Wine for custom EAs that you compile yourself. The working
+setup here is:
 
-## Which MT5?
+1. Run MT5 in the Linux container.
+2. Launch MT5 once so it creates its terminal data folders.
+3. Upload the compiled `.ex5` through the control UI.
+4. Use a local Compose override if you want the container to manage
+   `common.ini`, write the EA preset, and autoload the EA at launch.
 
-The Linux Compose file defaults to the HFM SA5 installer because it works
-reliably under Wine without install-time issues. This is **just the MT5
-application** — once installed you can log in with any broker or server.
-Swap the installer by setting `MT5_INSTALLER_URL` to your preferred broker's
-MT5 `.exe` download.
+Use Windows only for cases that Wine cannot satisfy, such as MQL5 Market EAs,
+native Windows DLL dependencies, DRM/anti-tamper checks, broker-specific
+Windows behavior, or full desktop compatibility.
 
-## Configuration
+If MT5 reports this error, the issue is the EA build or host CPU capability,
+not the upload path:
 
-Both setups use environment variables for paths and ports. See the
-`docker-compose.yml` and `.env.example` files in each directory. Set up a
-`.env` file before starting any service.
+```text
+your CPU architecture does not allow to run the file 'TelegramTC_EA.ex5':
+AVX2 required, you have AVX only
+```
 
-## Getting Started
+Rebuilding the EA as a regular x64 `.ex5` avoided that specific failure in this
+setup.
 
-- **Linux/Wine**: See `linux/README.md`.
-- **Windows 11**: See `windows/README.md`. Note that a Windows password
-  **must** be provided via `WINDOWS_PASSWORD` — the container will refuse to
-  start without one. When changing from the old Windows 10 LTSC evaluation VM,
-  use a fresh Windows data directory because the Docker storage is a bind mount
-  containing the persisted VM disk.
+## Resource Shape
+
+| Setup   | Approximate Disk | RAM Shape | Notes |
+|---------|------------------|-----------|-------|
+| Linux   | 3-8 GB           | Hundreds of MB | Wine prefix, MT5 install, lightweight desktop |
+| Windows | 12-20 GB         | Multiple GB | Full Windows VM plus MT5 |
+
+## How The Linux App Works
+
+The Linux container starts:
+
+- `Xvfb` for the virtual display.
+- `openbox` for window management.
+- `x11vnc` for raw VNC.
+- `websockify` and noVNC for browser access.
+- A Bun API and React control UI.
+- Wine, which runs the MT5 installer and `terminal64.exe`.
+
+The persisted MT5 install lives inside the mounted data directory:
+
+```text
+/data/wine-prefix/.mt5
+```
+
+On the home server used for this setup:
+
+```text
+Control UI: http://192.168.0.100:17300
+noVNC:      http://192.168.0.100:17080/vnc.html?autoconnect=1&resize=scale&path=websockify
+Raw VNC:   192.168.0.100:15900
+```
+
+Use the control UI for installing, launching, stopping, restarting, and
+uploading EA files. Use noVNC when you need to operate the MT5 desktop in a
+browser. Use raw VNC for local streaming tools such as `rdp-stream-studio`;
+do not point VNC clients at the noVNC browser URL.
+
+## EA Uploads
+
+The web app uploads EA-related files through `POST /api/mt5/experts`. The upload
+button writes `.ex5`, `.mq5`, `.mqh`, `.set`, and `.dll` files into the active
+MT5 `MQL5/Experts` directory.
+
+On a fresh MT5 install, upload may fail until MT5 has been launched once. That
+first launch lets MetaTrader create the terminal folders. After that, the upload
+panel should show a `Target:` path and the upload button should work normally.
+
+The official MetaQuotes installer can use this portable-style layout:
+
+```text
+/data/wine-prefix/.mt5/drive_c/Program Files/MetaTrader 5/MQL5/Experts
+```
+
+Some broker-branded installers use the roaming terminal layout:
+
+```text
+/data/wine-prefix/.mt5/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/<terminal-id>/MQL5/Experts
+```
+
+The app checks both layouts. The `Target:` value in the upload panel is the path
+the app is actually writing to.
+
+## EA Autoload And common.ini
+
+The shared `linux/docker-compose.yml` intentionally does not list account- or
+EA-specific `MT5_STARTUP_*` and `MT5_EA_*` variables. Keep those in a local
+`linux/docker-compose.override.yml` file so link codes, account-specific inputs,
+and EA settings stay out of git.
+
+Example local override:
+
+```yaml
+services:
+  linux-mt5:
+    environment:
+      MT5_STARTUP_CONFIG: "true"
+      MT5_STARTUP_EXPERT: "TelegramTC_EA"
+      MT5_STARTUP_SYMBOL: "XAUUSDr"
+      MT5_STARTUP_PERIOD: "H1"
+      MT5_STARTUP_PRESET: "TelegramTC_EA.set"
+      MT5_PRELOAD_CHARTS: "0"
+      MT5_EA_BackendBaseUrl: "http://<HOST-IP>:18787/api"
+      MT5_EA_LinkCode: "<link-code-from-the-app>"
+      MT5_EA_PollSeconds: "1"
+      MT5_EA_HeartbeatSeconds: "5"
+```
+
+When `MT5_STARTUP_CONFIG=true`, the app updates MT5's persisted `common.ini`,
+writes the preset under `MQL5/Presets`, and launches MT5 with
+`/config:<active common.ini>` so MetaTrader executes the `[StartUp]` block.
+`MaxBars` is pinned to `5000` by the app when startup config management is
+enabled.
+
+## Installer Choice
+
+The Linux Compose file defaults to the HFM SA5 MT5 installer because it has
+installed cleanly under Wine:
+
+```text
+https://download.terminal.free/cdn/web/12040/mt5/hfmarketssa5setup.exe
+```
+
+This is still just an MT5 terminal. After installation, you can log in with the
+broker/server you need, unless that broker-branded terminal blocks it.
+
+For broker-neutral testing, set `MT5_INSTALLER_URL` to the official MetaQuotes
+installer:
+
+```text
+MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+```
+
+The Linux image uses Debian Bookworm's distro Wine with a `win64` prefix. The
+newer Debian Trixie/WineHQ staging stack hung during fresh Wine prefix creation
+in this setup.
+
+## Running Linux
+
+From `linux/`:
+
+```bash
+bun install
+bun test
+bun run typecheck
+bun run lint
+bun run build
+docker compose up -d --build
+```
+
+Useful Linux environment variables:
+
+```text
+APP_PORT=17300
+NOVNC_PORT=17080
+VNC_PORT=15900
+LINUX_MT5_CONTAINER_NAME=linux-mt5
+MT5_DATA_DIR=/path/to/linux-mt5-data
+PUBLIC_NOVNC_URL=http://<host-ip>:17080/vnc.html?autoconnect=1&resize=scale&path=websockify
+ENABLE_AUDIO=false
+MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/12040/mt5/hfmarketssa5setup.exe
+MT5_INSTALL_WEBVIEW2=false
+```
+
+For multiple MT5 accounts, run multiple Linux containers with different
+container names, ports, and `MT5_DATA_DIR` values. Keep each account's autoload
+settings in that instance's local override file.
+
+## Windows Fallback
+
+Use `windows/` only when Linux/Wine is not enough. The Windows setup gives full
+Windows MT5 compatibility, but it behaves like a VM and will consume much more
+RAM.
+
+Set `WINDOWS_PASSWORD` before starting it. When replacing an old Windows VM, use
+a fresh Windows data directory because the Docker storage is a bind mount with
+the persisted VM disk.
+
+## More Detail
+
+- Linux setup: `linux/README.md`
+- Windows setup: `windows/README.md`

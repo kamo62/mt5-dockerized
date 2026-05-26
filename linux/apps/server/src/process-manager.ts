@@ -19,6 +19,11 @@ import {
   buildWineWindowsVersionCommand,
 } from "./command-builder";
 import { findMt5Executable, findMt5ExpertsDirectory, getRuntimePaths } from "./paths";
+import {
+  mt5StartupConfigFromEnv,
+  writeMt5StartupFiles,
+  type Mt5StartupConfig,
+} from "./mt5-startup-config";
 
 const defaultMt5Url =
   "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe";
@@ -40,6 +45,7 @@ type ManagerOptions = {
   display?: string;
   pulseServer?: string;
   autoLaunch?: boolean;
+  installWebView?: boolean;
   mt5InstallerUrl?: string;
   webViewInstallerUrl?: string;
 };
@@ -77,10 +83,12 @@ function hasFile(path: string): boolean {
 export class Mt5ProcessManager {
   private readonly paths: RuntimePaths;
   private readonly display: string;
-  private readonly pulseServer: string;
+  private readonly pulseServer?: string;
   private readonly autoLaunch: boolean;
+  private readonly installWebView: boolean;
   private readonly mt5InstallerUrl: string;
   private readonly webViewInstallerUrl: string;
+  private readonly startupConfig: Mt5StartupConfig;
   private readonly wineBootTimeoutMs: number;
   private readonly wineCfgTimeoutMs: number;
   private readonly webViewTimeoutMs: number;
@@ -93,15 +101,17 @@ export class Mt5ProcessManager {
   constructor(options: ManagerOptions = {}) {
     this.paths = options.paths ?? getRuntimePaths();
     this.display = options.display ?? process.env.DISPLAY_ID ?? ":99";
-    this.pulseServer =
-      options.pulseServer ?? process.env.PULSE_SERVER ?? "unix:/tmp/pulse/native";
+    this.pulseServer = this.resolvePulseServer(options.pulseServer);
     this.autoLaunch =
       options.autoLaunch ?? readBooleanEnv("AUTO_LAUNCH_MT5", true);
+    this.installWebView =
+      options.installWebView ?? readBooleanEnv("MT5_INSTALL_WEBVIEW2", false);
     this.mt5InstallerUrl = options.mt5InstallerUrl ?? process.env.MT5_INSTALLER_URL ?? defaultMt5Url;
     this.webViewInstallerUrl =
       options.webViewInstallerUrl ??
       process.env.WEBVIEW2_INSTALLER_URL ??
       defaultWebViewUrl;
+    this.startupConfig = mt5StartupConfigFromEnv(process.env);
     this.wineBootTimeoutMs = readTimeoutMs(
       "MT5_WINEBOOT_TIMEOUT_MS",
       DEFAULT_WINE_BOOT_TIMEOUT_MS,
@@ -180,7 +190,20 @@ export class Mt5ProcessManager {
     this.lastError = undefined;
     this.mt5State = "launching";
     await this.ensureDataDirectories();
-    this.startProcess("mt5", buildMt5LaunchCommand(executable));
+    const startupFiles = await writeMt5StartupFiles(
+      this.paths.winePrefix,
+      this.startupConfig,
+    );
+    if (startupFiles?.commonIniPath) {
+      this.log(`Updated MT5 common.ini: ${startupFiles.commonIniPath}.`);
+    }
+    if (startupFiles?.presetPath) {
+      this.log(`Generated MT5 EA preset: ${startupFiles.presetPath}.`);
+    }
+    this.startProcess(
+      "mt5",
+      buildMt5LaunchCommand(executable, startupFiles?.commonIniWindowsPath),
+    );
     this.mt5State = "running";
     this.log("MT5 terminal launched.");
     return this.getState();
@@ -272,11 +295,15 @@ export class Mt5ProcessManager {
         buildWineAntiDebugCommand(),
         this.wineCfgTimeoutMs,
       );
-      await this.runOneShot(
-        "webview2",
-        buildWebViewInstallCommand(this.paths.webviewInstallerPath),
-        this.webViewTimeoutMs,
-      );
+      if (this.installWebView) {
+        await this.runOneShot(
+          "webview2",
+          buildWebViewInstallCommand(this.paths.webviewInstallerPath),
+          this.webViewTimeoutMs,
+        );
+      } else {
+        this.log("Skipping WebView2 install because MT5_INSTALL_WEBVIEW2 is not enabled.");
+      }
       this.startProcess("installer", buildMt5InstallerCommand(this.paths.mt5InstallerPath));
       this.log("MT5 GUI installer opened in the browser desktop.");
     } catch (error) {
@@ -298,11 +325,13 @@ export class Mt5ProcessManager {
       this.paths.mt5InstallerPath,
       "MetaTrader 5 installer",
     );
-    await this.downloadFile(
-      this.webViewInstallerUrl,
-      this.paths.webviewInstallerPath,
-      "WebView2 installer",
-    );
+    if (this.installWebView) {
+      await this.downloadFile(
+        this.webViewInstallerUrl,
+        this.paths.webviewInstallerPath,
+        "WebView2 installer",
+      );
+    }
   }
 
   private async downloadFile(
@@ -327,6 +356,16 @@ export class Mt5ProcessManager {
 
   private installedExecutable(): string | undefined {
     return findMt5Executable(this.paths.winePrefix);
+  }
+
+  private resolvePulseServer(configuredPulseServer?: string): string | undefined {
+    if (configuredPulseServer) {
+      return configuredPulseServer;
+    }
+    if (!readBooleanEnv("ENABLE_AUDIO", false)) {
+      return undefined;
+    }
+    return process.env.PULSE_SERVER ?? "unix:/tmp/pulse/native";
   }
 
   private startProcess(name: string, command: string[]): void {

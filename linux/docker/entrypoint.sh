@@ -5,28 +5,45 @@ export DISPLAY="${DISPLAY_ID:-:99}"
 export HOME="${HOME:-/data/home}"
 export MT5_DATA_DIR="${MT5_DATA_DIR:-/data}"
 export WINEPREFIX="${WINEPREFIX:-${MT5_DATA_DIR}/wine-prefix/.mt5}"
-export PULSE_SERVER="${PULSE_SERVER:-unix:/tmp/pulse/native}"
+export ENABLE_AUDIO="${ENABLE_AUDIO:-false}"
 
-mkdir -p "$HOME" "$MT5_DATA_DIR/cache" "$MT5_DATA_DIR/wine-prefix" /tmp/pulse
-rm -f /tmp/pulse/native
+mkdir -p "$HOME" "$MT5_DATA_DIR/cache" "$MT5_DATA_DIR/wine-prefix"
 
-pulseaudio \
-  --daemonize=yes \
-  --exit-idle-time=-1 \
-  --log-target=stderr \
-  --load="module-native-protocol-unix socket=/tmp/pulse/native auth-anonymous=1" || true
+case "${ENABLE_AUDIO,,}" in
+  1 | true | yes | on)
+    audio_enabled=true
+    ;;
+  *)
+    audio_enabled=false
+    ;;
+esac
 
-pulse_ready=false
-for _ in $(seq 1 30); do
-  if pactl --server="$PULSE_SERVER" info >/dev/null 2>&1; then
-    pulse_ready=true
-    break
+if [ "$audio_enabled" = "true" ]; then
+  export PULSE_SERVER="${PULSE_SERVER:-unix:/tmp/pulse/native}"
+  mkdir -p /tmp/pulse
+  rm -f /tmp/pulse/native
+
+  pulseaudio \
+    --daemonize=yes \
+    --exit-idle-time=-1 \
+    --log-target=stderr \
+    --load="module-native-protocol-unix socket=/tmp/pulse/native auth-anonymous=1" || true
+
+  pulse_ready=false
+  for _ in $(seq 1 30); do
+    if pactl --server="$PULSE_SERVER" info >/dev/null 2>&1; then
+      pulse_ready=true
+      break
+    fi
+    sleep 0.2
+  done
+
+  if [ "$pulse_ready" != true ]; then
+    echo "PulseAudio did not become ready; continuing without blocking MT5 desktop startup." >&2
   fi
-  sleep 0.2
-done
-
-if [ "$pulse_ready" != true ]; then
-  echo "PulseAudio did not become ready; continuing without blocking MT5 desktop startup." >&2
+else
+  unset PULSE_SERVER
+  echo "PulseAudio disabled; MT5 desktop will run without container audio." >&2
 fi
 
 Xvfb "$DISPLAY" -screen 0 "${DESKTOP_WIDTH:-1920}x${DESKTOP_HEIGHT:-1080}x24" -nolisten tcp &

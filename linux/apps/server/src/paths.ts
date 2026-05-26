@@ -5,31 +5,34 @@ export function getRuntimePaths(dataDir = process.env.MT5_DATA_DIR ?? "/data"): 
   return createRuntimePaths(dataDir);
 }
 
-export function mt5ExecutableCandidates(winePrefix: string): string[] {
+function unique(paths: string[]): string[] {
+  return [...new Set(paths)];
+}
+
+export function mt5InstallDirectoryCandidates(winePrefix: string): string[] {
   const programFilesDirs = [
     `${winePrefix}/drive_c/Program Files`,
     `${winePrefix}/drive_c/Program Files (x86)`,
   ];
+  const defaults = programFilesDirs.map((directory) => `${directory}/MetaTrader 5`);
   const discovered = programFilesDirs.flatMap((directory) => {
     try {
       return readdirSync(directory, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
-        .flatMap((entry) => [
-          `${directory}/${entry.name}/terminal64.exe`,
-          `${directory}/${entry.name}/terminal.exe`,
-        ]);
+        .map((entry) => `${directory}/${entry.name}`);
     } catch {
       return [];
     }
   });
 
-  return [
-    `${winePrefix}/drive_c/Program Files/MetaTrader 5/terminal64.exe`,
-    `${winePrefix}/drive_c/Program Files (x86)/MetaTrader 5/terminal64.exe`,
-    `${winePrefix}/drive_c/Program Files/MetaTrader 5/terminal.exe`,
-    `${winePrefix}/drive_c/Program Files (x86)/MetaTrader 5/terminal.exe`,
-    ...discovered,
-  ];
+  return unique([...defaults, ...discovered]);
+}
+
+export function mt5ExecutableCandidates(winePrefix: string): string[] {
+  return mt5InstallDirectoryCandidates(winePrefix).flatMap((directory) => [
+    `${directory}/terminal64.exe`,
+    `${directory}/terminal.exe`,
+  ]);
 }
 
 export function isMt5ExecutablePath(path: string): boolean {
@@ -44,9 +47,12 @@ export function findMt5Executable(winePrefix: string): string | undefined {
 
 export function mt5ExpertsDirectoryCandidates(winePrefix: string): string[] {
   const usersDir = `${winePrefix}/drive_c/users`;
+  const portableExpertsDirs = mt5InstallDirectoryCandidates(winePrefix).map(
+    (directory) => `${directory}/MQL5/Experts`,
+  );
 
   try {
-    return readdirSync(usersDir, { withFileTypes: true })
+    const terminalExpertsDirs = readdirSync(usersDir, { withFileTypes: true })
       .filter((user) => user.isDirectory())
       .flatMap((user) => {
         const terminalRoot = `${usersDir}/${user.name}/AppData/Roaming/MetaQuotes/Terminal`;
@@ -58,8 +64,9 @@ export function mt5ExpertsDirectoryCandidates(winePrefix: string): string[] {
           return [];
         }
       });
+    return unique([...terminalExpertsDirs, ...portableExpertsDirs]);
   } catch {
-    return [];
+    return unique(portableExpertsDirs);
   }
 }
 

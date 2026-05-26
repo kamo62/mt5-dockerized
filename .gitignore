@@ -4,6 +4,10 @@ dist-types
 *.tsbuildinfo
 .DS_Store
 .env
+docker-compose.override.yml
+docker-compose.override.yaml
+linux/docker-compose.override.yml
+linux/docker-compose.override.yaml
 linux-mt5-data
 windows-mt5-data
 windows-mt5-shared

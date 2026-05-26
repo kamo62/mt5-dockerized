@@ -1,6 +1,6 @@
 export type WineEnvInput = {
   display: string;
-  pulseServer: string;
+  pulseServer?: string;
   winePrefix: string;
 };
 
@@ -8,7 +8,7 @@ export function buildWineEnv(input: WineEnvInput): Record<string, string> {
   return {
     DISPLAY: input.display,
     HOME: process.env.HOME ?? "/data/home",
-    PULSE_SERVER: input.pulseServer,
+    ...(input.pulseServer ? { PULSE_SERVER: input.pulseServer } : {}),
     WINEPREFIX: input.winePrefix,
     WINEDEBUG: process.env.WINEDEBUG ?? "-all",
   };
@@ -19,7 +19,7 @@ export function buildWineBootCommand(): string[] {
 }
 
 export function buildWineWindowsVersionCommand(): string[] {
-  return ["winecfg", "-v=win11"];
+  return ["winecfg", "-v=win10"];
 }
 
 export function buildWineAntiDebugCommand(): string[] {
@@ -42,6 +42,13 @@ export function buildMt5InstallerCommand(installerPath: string): string[] {
   return ["wine", installerPath];
 }
 
-export function buildMt5LaunchCommand(executablePath: string): string[] {
-  return ["wine", executablePath];
+export function buildMt5LaunchCommand(
+  executablePath: string,
+  configPath?: string,
+): string[] {
+  return [
+    "wine",
+    executablePath,
+    ...(configPath ? [`/config:${configPath}`] : []),
+  ];
 }

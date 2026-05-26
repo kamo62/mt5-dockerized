@@ -6,7 +6,7 @@ services:
       context: .
     image: linux-mt5:latest
     platform: linux/amd64
-    container_name: linux-mt5
+    container_name: "${LINUX_MT5_CONTAINER_NAME:-linux-mt5}"
     init: true
     cap_add:
       - SYS_PTRACE
@@ -16,6 +16,9 @@ services:
     ports:
       - "${APP_PORT:-17300}:3000"
       - "${NOVNC_PORT:-17080}:6080"
+      # Raw VNC/RFB endpoint for local stream tools such as rdp-stream-studio.
+      # noVNC URLs are browser/HTTP endpoints; VNC clients need this port.
+      - "${VNC_PORT:-15900}:5900"
     environment:
       PORT: "3000"
       DISPLAY_ID: ":99"
@@ -24,7 +27,9 @@ services:
       MT5_DATA_DIR: "/data"
       PUBLIC_NOVNC_URL: "${PUBLIC_NOVNC_URL:-http://localhost:17080/vnc.html?autoconnect=1&resize=scale&path=websockify}"
       WEBSOCKIFY_HEARTBEAT_SECONDS: "30"
+      ENABLE_AUDIO: "${ENABLE_AUDIO:-false}"
       AUTO_LAUNCH_MT5: "true"
       MT5_INSTALLER_URL: "${MT5_INSTALLER_URL:-https://download.terminal.free/cdn/web/12040/mt5/hfmarketssa5setup.exe}"
+      MT5_INSTALL_WEBVIEW2: "${MT5_INSTALL_WEBVIEW2:-false}"
     volumes:
       - "${MT5_DATA_DIR:-./linux-mt5-data}:/data"

@@ -10,7 +10,7 @@
     "dev": "bun --filter @linux-mt5/web dev",
     "dev:server": "bun --filter @linux-mt5/server dev",
     "dev:web": "bun --filter @linux-mt5/web dev",
-    "build": "bun --filter '*' build",
+    "build": "tsc -b --force packages/shared apps/server && bun --filter @linux-mt5/web build",
     "test": "bun test",
     "typecheck": "tsc -b",
     "lint": "eslint ."

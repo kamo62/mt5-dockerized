@@ -71,6 +71,7 @@ Open:
 - Control UI: `http://localhost:17300`
 - noVNC directly:
   `http://localhost:17080/vnc.html?autoconnect=1&resize=scale&path=websockify`
+- Raw VNC/RFB for local stream tools: `localhost:15900`
 
 ## Home Server Deployment
 
@@ -80,6 +81,8 @@ deploying:
 ```text
 APP_PORT=17300
 NOVNC_PORT=17080
+VNC_PORT=15900
+LINUX_MT5_CONTAINER_NAME=linux-mt5
 MT5_DATA_DIR=/path/to/linux-mt5-data
 PUBLIC_NOVNC_URL=http://<your-host-ip>:17080/vnc.html?autoconnect=1&resize=scale&path=websockify
 ```
@@ -92,6 +95,29 @@ rsync -az --delete --exclude node_modules --exclude dist --exclude dist-types \
 
 ssh user@<your-host> 'cd /opt/linux-mt5 && docker-compose up -d --build'
 ```
+
+## Streaming With rdp-stream-studio
+
+The container publishes raw VNC/RFB on `VNC_PORT` for local stream tools. Point
+`rdp-stream-studio` at this raw VNC endpoint, not at the noVNC browser URL:
+
+```text
+Source type: VNC
+Host: <your-host-ip>
+Port: 15900
+Password: leave empty
+```
+
+For the home server used during this setup, that means:
+
+```text
+Host: 192.168.0.100
+Port: 15900
+```
+
+The noVNC URL on `NOVNC_PORT` is still useful for browser control, but it is an
+HTTP/WebSocket wrapper around VNC. TigerVNC and other VNC clients need the raw
+`host:port` endpoint.
 
 ## First Run
 
@@ -112,9 +138,13 @@ configured via `MT5_DATA_DIR`.
 
 ## Expert Advisors
 
-Expert Advisors do **not** run reliably under Wine. Most EAs depend on Windows
-DLLs, kernel32 calls, or anti-tampering checks that Wine cannot satisfy. Use
-the Windows setup (`../windows/`) if you need EA support.
+Expert Advisors can run under Wine when they are custom/non-DRM builds and do
+not depend on unsupported Windows APIs or CPU features unavailable on the host.
+Commercial MQL5 Market EAs, EAs with native DLL dependencies, and binaries
+compiled for newer CPU instruction sets may still fail. Use the Windows setup
+(`../windows/`) only when you really need those Windows-specific behaviours,
+because the Windows container uses gigabytes of RAM rather than the lighter
+Linux/Wine footprint.
 
 The upload endpoint is still available for compiled indicators and scripts
 (`.ex5`). Files are written into the active terminal data folder under
@@ -122,7 +152,13 @@ The upload endpoint is still available for compiled indicators and scripts
 
 ```text
 /data/wine-prefix/.mt5/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/<terminal-id>/MQL5/Experts
+/data/wine-prefix/.mt5/drive_c/Program Files/MetaTrader 5/MQL5/Experts
 ```
+
+The official MetaQuotes installer can run in a portable-style layout where
+`Config/common.ini` and `MQL5/Experts` live under the install folder in
+`Program Files`. Broker-branded installs may instead use the roaming MetaQuotes
+terminal folder. The app checks both layouts.
 
 The upload endpoint accepts common EA-related files:
 
@@ -130,8 +166,65 @@ The upload endpoint accepts common EA-related files:
 .ex5 .mq5 .mqh .set .dll
 ```
 
-If the terminal data folder is missing, launch MT5 once and retry the upload.
+In the control UI, the EA upload panel shows the detected `Target:` path before
+and after upload. That is the exact folder the app writes into.
+
+If the terminal data folder is missing, the upload button cannot resolve a
+target yet. Launch MT5 once from the control UI, let MetaTrader finish creating
+its `MQL5/Experts` folders, then retry the upload. After that first run, the
+upload button should work normally and show the detected `Target:` path.
 Restart MT5 after uploading compiled EAs if the Navigator does not refresh.
+
+### Managed common.ini and EA Presets
+
+Set `MT5_STARTUP_CONFIG=true` to have the container update the active
+terminal's persisted `config/common.ini` before launching MT5. The update keeps
+account login, server, encrypted WebRequest allow-list, and other terminal state
+inside the mounted Wine prefix, then overlays the low-resource chart settings
+and optional EA startup settings controlled by Compose.
+
+The shared `docker-compose.yml` intentionally does not include these optional
+EA and `common.ini` variables, because they are account- and EA-specific. Put
+them in a local `docker-compose.override.yml` file next to `docker-compose.yml`.
+That file is ignored by git.
+
+No separate startup INI is created. The app launches `terminal64.exe` with
+MetaTrader's `/config:` flag pointing at that active `common.ini`, which is what
+causes MetaTrader to execute the `[StartUp]` block. Empty startup values are
+ignored. That means the container can manage resource settings without adding a
+`[StartUp]` block, and EA autoload only turns on when `MT5_STARTUP_EXPERT` is
+set. Any existing `[StartUp]` block is replaced by the Compose-managed settings
+so stale EA autoload values do not linger.
+
+Example `docker-compose.override.yml` for auto-loading an EA:
+
+```yaml
+services:
+  linux-mt5:
+    environment:
+      MT5_STARTUP_CONFIG: "true"
+      MT5_STARTUP_EXPERT: "TelegramTC_EA"
+      MT5_STARTUP_SYMBOL: "XAUUSDr"
+      MT5_STARTUP_PERIOD: "H1"
+      MT5_STARTUP_PRESET: "TelegramTC_EA.set"
+      MT5_PRELOAD_CHARTS: "0"
+      MT5_EA_BackendBaseUrl: "http://<HOST-IP>:18787/api"
+      MT5_EA_LinkCode: "<link-code-from-the-app>"
+      MT5_EA_PollSeconds: "1"
+      MT5_EA_HeartbeatSeconds: "5"
+```
+
+`MaxBars` is intentionally pinned to `5000` when startup config management is
+enabled. Any environment variable beginning with `MT5_EA_` is written into the
+generated EA preset after the prefix is removed. For example,
+`MT5_EA_LinkCode` becomes `LinkCode=...` in
+`MQL5/Presets/TelegramTC_EA.set`.
+
+For a different custom EA, upload or mount the compiled `.ex5` into
+`MQL5/Experts`, set `MT5_STARTUP_EXPERT` to the file name without `.ex5`, set
+`MT5_STARTUP_SYMBOL` and `MT5_STARTUP_PERIOD` for the chart that should open,
+set `MT5_STARTUP_PRESET` if the EA should load a preset file, and add one local
+override environment entry per EA input using `MT5_EA_<InputName>`.
 
 ## Configuration
 
@@ -141,20 +234,34 @@ the MT5 terminal — once installed you can log in with **any** broker account
 or trading server. To use a different installer, set `MT5_INSTALLER_URL` to
 your broker's MT5 download link.
 
+For broker-neutral testing, use the official MetaQuotes installer URL:
+
+```text
+MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
+```
+
+The image uses Debian Bookworm's distro Wine with a `win64` Wine prefix. During
+this setup, the newer Debian Trixie/WineHQ staging combination repeatedly hung
+at `wineboot --init` when creating a fresh prefix.
+
 Useful environment variables:
 
 ```text
 APP_PORT=17300
 NOVNC_PORT=17080
+VNC_PORT=15900
+LINUX_MT5_CONTAINER_NAME=linux-mt5
 MT5_DATA_DIR=/path/to/linux-mt5-data
 PUBLIC_NOVNC_URL=http://<your-host-ip>:17080/vnc.html?autoconnect=1&resize=scale&path=websockify
 WEBSOCKIFY_HEARTBEAT_SECONDS=30
+ENABLE_AUDIO=false
 AUTO_LAUNCH_MT5=true
 AUTO_LAUNCH_DELAY_MS=2500
 MT5_WINEBOOT_TIMEOUT_MS=900000
 MT5_WINECFG_TIMEOUT_MS=180000
 MT5_WEBVIEW2_TIMEOUT_MS=600000
 MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/12040/mt5/hfmarketssa5setup.exe
+MT5_INSTALL_WEBVIEW2=false
 WEBVIEW2_INSTALLER_URL=https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/f2910a1e-e5a6-4f17-b52d-7faf525d17f8/MicrosoftEdgeWebview2Setup.exe
 ```
 
@@ -178,7 +285,11 @@ Current benign runtime warnings:
 - `Openbox-Message: Unable to find a valid menu file` means no desktop menu is
   configured. MT5 still runs.
 - `Xlib: extension "DPMS" missing` is expected under Xvfb.
-- PulseAudio may warn about running as root. Audio is not required for MT5.
+- Audio is disabled by default because MT5 and this EA do not need it. Set
+  `ENABLE_AUDIO=true` only if you need PulseAudio inside the container.
+- WebView2 install is skipped by default because the EdgeUpdate bootstrapper can
+  hang under Wine. Set `MT5_INSTALL_WEBVIEW2=true` only if a workflow needs
+  MT5's embedded web surfaces.
 - The installer may try to open an MQL5 welcome URL through `xdg-open`; this
   image intentionally does not include a browser.
 
@@ -193,9 +304,11 @@ Built-in safeguards:
 ## Security Notes
 
 This is intended for trusted local-network use. It has no built-in browser auth
-and no TLS termination. Do not expose this container directly to the public
-internet. If it needs to be reachable outside the LAN, put it behind a reverse
-proxy with authentication and TLS.
+and no TLS termination. Raw VNC is also published without a VNC password because
+the local streaming workflow needs direct desktop capture. Do not expose this
+container directly to the public internet. If it needs to be reachable outside
+the LAN, put it behind a protected network boundary and add authentication/TLS
+for the browser surfaces.
 
 The project does not store broker credentials or automate trading account login.
 Any account credentials entered into MT5 are handled by MT5/Wine inside the
