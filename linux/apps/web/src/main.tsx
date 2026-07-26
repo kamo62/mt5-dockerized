@@ -1,6 +1,5 @@
 import {
   Activity,
-  Download,
   Monitor,
   Play,
   RefreshCcw,
@@ -52,7 +51,7 @@ type ExpertsInfo = {
   uploaded?: string[];
 };
 
-type PendingAction = "install" | "launch" | "stop" | "restart";
+type PendingAction = "launch" | "stop" | "restart";
 
 const emptyStatus: Mt5Status = {
   desktop: "starting",
@@ -106,7 +105,7 @@ function stateLabel(status: Mt5Status): string {
   if (status.mt5 === "failed") {
     return "ATTENTION";
   }
-  return "READY FOR INSTALL";
+  return "STARTING";
 }
 
 function parseLog(line: string): { time: string; message: string; tone: string } {
@@ -290,7 +289,6 @@ function App() {
             <Terminal size={22} />
           </div>
           <div>
-            <p className="eyebrow">LAN DESKTOP</p>
             <h1>Linux MT5</h1>
           </div>
         </div>
@@ -317,17 +315,6 @@ function App() {
           <div className="panel-section">
             <h2>Controls</h2>
             <div className="button-grid">
-              <ActionButton
-                disabled={status.installed || status.installerRunning}
-                icon={<Download size={17} />}
-                label="Install"
-                onClick={() =>
-                  void runAction("install", () =>
-                    postJson<Mt5Status>("/api/mt5/install"),
-                  )
-                }
-                pending={pending === "install"}
-              />
               <ActionButton
                 disabled={!canLaunch}
                 icon={<Play size={17} />}
@@ -372,10 +359,6 @@ function App() {
               <div>
                 <dt>MT5 setup</dt>
                 <dd>{status.installerFiles.mt5Setup ? "cached" : "missing"}</dd>
-              </div>
-              <div>
-                <dt>WebView2</dt>
-                <dd>{status.installerFiles.webviewSetup ? "cached" : "missing"}</dd>
               </div>
               <div>
                 <dt>Terminal</dt>

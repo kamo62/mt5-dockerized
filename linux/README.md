@@ -130,11 +130,21 @@ HTTP/WebSocket wrapper around VNC. TigerVNC and other VNC clients need the raw
 
 ## First Run
 
+With `AUTO_INSTALL_MT5=true` (the default), the container installs MetaTrader 5
+by itself on first boot using the unattended `mt5setup.exe /auto` flow — no
+clicking required — and auto-launches it when `AUTO_LAUNCH_MT5=true`. Watch
+progress in the control UI's runtime log.
+
+To install manually instead, set `AUTO_INSTALL_MT5=false` and:
+
 1. Open the control UI.
 2. Click `Install`.
-3. Wait for the WebView2 and MetaTrader 5 installer flow to start.
-4. Complete the MT5 installer inside the noVNC desktop.
-5. Restart the container or click `Launch` after `terminal64.exe` is detected.
+3. Wait for the MetaTrader 5 installer flow to start.
+4. The unattended installer completes on its own; click `Launch` after
+   `terminal64.exe` is detected.
+
+The container also exposes a Docker `HEALTHCHECK` (polls `/api/status`), so
+`docker ps` shows health and orchestration can react to a stuck container.
 
 The Wine prefix is persisted at:
 
@@ -256,9 +266,13 @@ For broker-neutral testing, use the official MetaQuotes installer URL:
 MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
 ```
 
-The image uses Debian Bookworm's distro Wine with a `win64` Wine prefix. During
-this setup, the newer Debian Trixie/WineHQ staging combination repeatedly hung
-at `wineboot --init` when creating a fresh prefix.
+The image uses Debian Bookworm's distro Wine (8.0) with a `win64` prefix. The
+current official MT5 build prints an advisory "upgrade to Wine 10.0+" line but
+still installs and runs on Wine 8. Do **not** upgrade to WineHQ 11 to silence
+it: build 5836's installer then trips its anti-debug protector ("A debugger has
+been found running in your system") and refuses to install. Wine 8 is the
+working configuration. Mono/Gecko prompts are suppressed via `WINEDLLOVERRIDES`
+for the official installer.
 
 Useful environment variables:
 
@@ -272,6 +286,7 @@ PUBLIC_NOVNC_URL=http://<your-host-ip>:17080/vnc.html?autoconnect=1&resize=scale
 WEBSOCKIFY_HEARTBEAT_SECONDS=30
 ENABLE_AUDIO=false
 AUTO_LAUNCH_MT5=true
+AUTO_INSTALL_MT5=true
 AUTO_LAUNCH_DELAY_MS=2500
 MT5_WINEBOOT_TIMEOUT_MS=900000
 MT5_WINECFG_TIMEOUT_MS=180000
@@ -279,6 +294,43 @@ MT5_WEBVIEW2_TIMEOUT_MS=600000
 MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/12040/mt5/hfmarketssa5setup.exe
 MT5_INSTALL_WEBVIEW2=false
 WEBVIEW2_INSTALLER_URL=https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/f2910a1e-e5a6-4f17-b52d-7faf525d17f8/MicrosoftEdgeWebview2Setup.exe
+```
+
+### Optional S3 tick-CSV sync
+
+The container can mirror exported tick CSVs to S3. It is **off by default**.
+Turn it on by setting the flag and the destination (directly, via an
+`--env-file`, or by copying `docker-compose.override.yml.example` to
+`docker-compose.override.yml` and uncommenting the S3 block):
+
+```text
+S3_SYNC_ENABLED=true                 # the feature flag
+S3_URI=s3://your-bucket/ticks        # required when enabled
+S3_SYNC_SOURCE_DIR=/data/exports     # container path MT5 exports CSVs into
+S3_SYNC_INTERVAL_SECONDS=60
+S3_SYNC_SETTLE_SECONDS=60             # defer upload while a CSV is still changing
+```
+
+In MT5's tick-export Save dialog, save the CSV into the directory that maps to
+`S3_SYNC_SOURCE_DIR` (the default `/data/exports` is the host `MT5_DATA_DIR`
+`exports/` folder). A loop runs `aws s3 sync` of `*.csv` on the interval.
+
+Credentials: on EC2 with an attached instance role, leave the AWS values unset
+and ensure the instance metadata **hop limit is >= 2** so the container can
+reach the role. Off-AWS, provide them (session token only for temporary keys):
+
+```text
+AWS_DEFAULT_REGION=us-east-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_SESSION_TOKEN=...
+```
+
+For the **official** MetaTrader 5 installer instead of the HFM default, also set:
+
+```text
+MT5_INSTALLER_URL=https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe
+WINEDLLOVERRIDES=mscoree=d;mshtml=d   # suppress the headless Wine Mono/Gecko prompts
 ```
 
 ## API

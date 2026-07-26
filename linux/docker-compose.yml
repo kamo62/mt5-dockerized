@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   linux-mt5:
     build:
@@ -29,7 +27,41 @@ services:
       WEBSOCKIFY_HEARTBEAT_SECONDS: "30"
       ENABLE_AUDIO: "${ENABLE_AUDIO:-false}"
       AUTO_LAUNCH_MT5: "true"
+      # Unattended install: the container installs MT5 by itself on first boot
+      # (mt5setup.exe /auto) with no GUI click-through. Set to "false" if you
+      # prefer to click Install in the control UI yourself.
+      AUTO_INSTALL_MT5: "${AUTO_INSTALL_MT5:-true}"
       MT5_INSTALLER_URL: "${MT5_INSTALLER_URL:-https://download.terminal.free/cdn/web/12040/mt5/hfmarketssa5setup.exe}"
       MT5_INSTALL_WEBVIEW2: "${MT5_INSTALL_WEBVIEW2:-false}"
+      # ============================================================
+      # OPTIONAL FEATURES — all OFF by default. Uncomment a block to
+      # enable it (or set the vars via an --env-file /
+      # docker-compose.override.yml). See docker-compose.override.yml.example.
+      # ============================================================
+      #
+      # --- Official MetaTrader 5 installer (instead of the HFM default) ---
+      # The image uses the tested WineHQ stable runtime (Wine 11).
+      # MT5_INSTALLER_URL: "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
+      # WINEDLLOVERRIDES: "mscoree=d;mshtml=d"   # suppress headless Mono/Gecko prompts
+      #
+      # --- Pre-config: auto-apply MT5 startup config + autoload an EA ---
+      # Kept out of this shared file on purpose. See
+      # docker-compose.override.yml.example for the EA/startup pre-config block
+      # to copy into docker-compose.override.yml.
+      #
+      # --- S3 sync of exported tick CSVs ---
+      # Set S3_SYNC_ENABLED=true AND S3_URI. On EC2 with an instance role leave
+      # the AWS_* values commented (needs IMDS hop limit >= 2); otherwise supply
+      # keys (+ session token for temporary credentials). Sync defers a cycle
+      # while a CSV is still being written (S3_SYNC_SETTLE_SECONDS).
+      # S3_SYNC_ENABLED: "true"
+      # S3_URI: "s3://your-bucket/ticks"
+      # S3_SYNC_SOURCE_DIR: "/data/exports"
+      # S3_SYNC_INTERVAL_SECONDS: "60"
+      # S3_SYNC_SETTLE_SECONDS: "60"
+      # AWS_DEFAULT_REGION: "us-east-1"
+      # AWS_ACCESS_KEY_ID: "..."
+      # AWS_SECRET_ACCESS_KEY: "..."
+      # AWS_SESSION_TOKEN: "..."
     volumes:
       - "${MT5_DATA_DIR:-./linux-mt5-data}:/data"

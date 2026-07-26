@@ -23,10 +23,20 @@ ENV MT5_DATA_DIR=/data
 ENV HOME=/data/home
 ENV WINEARCH=win64
 
+# WineHQ stable is used instead of Debian Bookworm's Wine 8 package. The
+# current WineHQ stable branch is Wine 11, which provides newer Windows APIs
+# required by current MT5 builds.
 RUN dpkg --add-architecture i386 \
   && apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates gnupg wget \
+  && mkdir -pm755 /etc/apt/keyrings \
+  && wget -O - https://dl.winehq.org/wine-builds/winehq.key \
+    | gpg --dearmor -o /etc/apt/keyrings/winehq-archive.key \
+  && wget -NP /etc/apt/sources.list.d/ \
+    https://dl.winehq.org/wine-builds/debian/dists/bookworm/winehq-bookworm.sources \
+  && apt-get update \
   && apt-get install -y --no-install-recommends \
-    ca-certificates \
+    awscli \
     cabextract \
     curl \
     fonts-dejavu-core \
@@ -44,10 +54,7 @@ RUN dpkg --add-architecture i386 \
     pulseaudio-utils \
     unzip \
     websockify \
-    wget \
-    wine \
-    wine32:i386 \
-    wine64 \
+    winehq-stable \
     winbind \
     x11vnc \
     xdg-utils \
@@ -61,5 +68,10 @@ COPY --from=build /entrypoint.sh /entrypoint.sh
 COPY --from=build /app /app
 
 EXPOSE 3000 5900 6080
+
+# Surfaces container health via the control API. Generous start period covers
+# first-boot Wine prefix creation + unattended MT5 install.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
+  CMD curl -fsS http://localhost:3000/api/status >/dev/null || exit 1
 
 CMD ["/entrypoint.sh"]
