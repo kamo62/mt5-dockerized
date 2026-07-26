@@ -13,6 +13,7 @@ import {
   buildMt5InstallerCommand,
   buildMt5LaunchCommand,
   buildWineAntiDebugCommand,
+  buildWineAudioDriverCommand,
   buildWebViewInstallCommand,
   buildWineBootCommand,
   buildWineEnv,
@@ -45,6 +46,7 @@ type ManagerOptions = {
   display?: string;
   pulseServer?: string;
   autoLaunch?: boolean;
+  autoInstall?: boolean;
   installWebView?: boolean;
   mt5InstallerUrl?: string;
   webViewInstallerUrl?: string;
@@ -85,6 +87,7 @@ export class Mt5ProcessManager {
   private readonly display: string;
   private readonly pulseServer?: string;
   private readonly autoLaunch: boolean;
+  private readonly autoInstall: boolean;
   private readonly installWebView: boolean;
   private readonly mt5InstallerUrl: string;
   private readonly webViewInstallerUrl: string;
@@ -104,6 +107,8 @@ export class Mt5ProcessManager {
     this.pulseServer = this.resolvePulseServer(options.pulseServer);
     this.autoLaunch =
       options.autoLaunch ?? readBooleanEnv("AUTO_LAUNCH_MT5", true);
+    this.autoInstall =
+      options.autoInstall ?? readBooleanEnv("AUTO_INSTALL_MT5", true);
     this.installWebView =
       options.installWebView ?? readBooleanEnv("MT5_INSTALL_WEBVIEW2", false);
     this.mt5InstallerUrl = options.mt5InstallerUrl ?? process.env.MT5_INSTALLER_URL ?? defaultMt5Url;
@@ -126,11 +131,19 @@ export class Mt5ProcessManager {
     );
 
     this.log(`Linux MT5 data directory: ${this.paths.dataDir}.`);
-    if (this.autoLaunch && this.installedExecutable()) {
-      this.log("Detected existing MT5 install; scheduling automatic launch.");
+    const bootDelayMs = Number(process.env.AUTO_LAUNCH_DELAY_MS ?? 2500);
+    if (this.installedExecutable()) {
+      if (this.autoLaunch) {
+        this.log("Detected existing MT5 install; scheduling automatic launch.");
+        setTimeout(() => {
+          void this.launch().catch((error) => this.captureError(error));
+        }, bootDelayMs);
+      }
+    } else if (this.autoInstall) {
+      this.log("No MT5 install detected; scheduling automatic unattended install.");
       setTimeout(() => {
-        void this.launch().catch((error) => this.captureError(error));
-      }, Number(process.env.AUTO_LAUNCH_DELAY_MS ?? 2500));
+        void this.install().catch((error) => this.captureError(error));
+      }, bootDelayMs);
     }
   }
 
@@ -190,6 +203,19 @@ export class Mt5ProcessManager {
     this.lastError = undefined;
     this.mt5State = "launching";
     await this.ensureDataDirectories();
+    // Match Wine's audio driver to ENABLE_AUDIO. Empty driver (audio off)
+    // stops the ALSA "cannot find card" log noise on headless hosts. Non-fatal.
+    try {
+      await this.runOneShot(
+        "wine-audio",
+        buildWineAudioDriverCommand(Boolean(this.pulseServer)),
+        this.wineCfgTimeoutMs,
+      );
+    } catch (error) {
+      this.log(
+        `Audio driver setup skipped: ${error instanceof Error ? error.message : "unknown error"}.`,
+      );
+    }
     const startupFiles = await writeMt5StartupFiles(
       this.paths.winePrefix,
       this.startupConfig,
@@ -406,6 +432,11 @@ export class Mt5ProcessManager {
         this.mt5State = this.installedExecutable() ? "idle" : "failed";
         if (this.mt5State === "failed") {
           this.lastError = "MT5 installer exited before terminal64.exe was detected.";
+        } else if (this.autoLaunch && !this.processes.has("mt5")) {
+          this.log("Unattended install finished; scheduling automatic launch.");
+          setTimeout(() => {
+            void this.launch().catch((error) => this.captureError(error));
+          }, Number(process.env.AUTO_LAUNCH_DELAY_MS ?? 2500));
         }
       }
       if (name === "mt5" && !managed.intentionalStop) {

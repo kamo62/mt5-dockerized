@@ -1,0 +1,53 @@
+# Local feature overrides for linux-mt5.
+#
+# Copy this file to `docker-compose.override.yml` (git-ignored) and uncomment
+# the blocks for the features you want. Docker Compose merges it on top of
+# docker-compose.yml automatically, so `docker compose up -d` picks it up.
+#
+# docker-compose.yml ships a minimal default: it only auto-installs MT5. Every
+# optional feature is off; turn one on by uncommenting its block here.
+
+services:
+  linux-mt5:
+    environment:
+      # ===================================================================
+      # Auto-install toggle (on by default in docker-compose.yml). Uncomment
+      # to disable and install via the control UI's Install button instead.
+      # ===================================================================
+      # AUTO_INSTALL_MT5: "false"
+
+      # ===================================================================
+      # Official MetaTrader 5 installer (instead of the HFM default).
+      # Keep the image on the tested WineHQ stable runtime (Wine 11).
+      # ===================================================================
+      # MT5_INSTALLER_URL: "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe"
+      # WINEDLLOVERRIDES: "mscoree=d;mshtml=d"
+
+      # ===================================================================
+      # Pre-config: apply MT5 common.ini [StartUp] and autoload an EA.
+      # Put the compiled .ex5 in MQL5/Experts first. One MT5_EA_<Input> per
+      # EA input. MaxBars is pinned to 5000 when startup config is enabled.
+      # ===================================================================
+      # MT5_STARTUP_CONFIG: "true"
+      # MT5_STARTUP_EXPERT: "TelegramTC_EA_v1.50"
+      # MT5_STARTUP_SYMBOL: "XAUUSDb"
+      # MT5_STARTUP_PERIOD: "M5"
+      # MT5_STARTUP_PRESET: "TelegramTC_EA_v1.50.set"
+      # MT5_EA_SomeInput: "value"
+
+      # ===================================================================
+      # S3 sync of exported tick CSVs.
+      # Step 1: set the flag.  Step 2: set S3_URI (+ creds if not on an EC2
+      # instance role). The sync defers while a CSV is still being written.
+      # ===================================================================
+      # S3_SYNC_ENABLED: "true"
+      # S3_URI: "s3://your-bucket/ticks"
+      # S3_SYNC_SOURCE_DIR: "/data/exports"
+      # S3_SYNC_INTERVAL_SECONDS: "60"
+      # S3_SYNC_SETTLE_SECONDS: "60"
+      #
+      # On EC2 with an instance role, leave AWS_* commented (IMDS hop limit >= 2).
+      # AWS_DEFAULT_REGION: "us-east-1"
+      # AWS_ACCESS_KEY_ID: "..."
+      # AWS_SECRET_ACCESS_KEY: "..."
+      # AWS_SESSION_TOKEN: "..."

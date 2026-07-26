@@ -34,12 +34,33 @@ export function buildWineAntiDebugCommand(): string[] {
   ];
 }
 
+// Set Wine's audio driver. When audio is disabled we set it to empty so Wine
+// loads no audio driver and never probes ALSA (which otherwise floods the logs
+// with "cannot find card '0'" noise on a headless host with no sound device).
+export function buildWineAudioDriverCommand(audioEnabled: boolean): string[] {
+  return [
+    "wine",
+    "reg",
+    "add",
+    "HKCU\\Software\\Wine\\Drivers",
+    "/v",
+    "Audio",
+    "/t",
+    "REG_SZ",
+    "/d",
+    audioEnabled ? "pulse" : "",
+    "/f",
+  ];
+}
+
 export function buildWebViewInstallCommand(installerPath: string): string[] {
   return ["wine", installerPath, "/silent", "/install"];
 }
 
 export function buildMt5InstallerCommand(installerPath: string): string[] {
-  return ["wine", installerPath];
+  // `/auto` runs the MetaTrader installer unattended (no GUI click-through),
+  // which is what makes a hands-off auto-install possible.
+  return ["wine", installerPath, "/auto"];
 }
 
 export function buildMt5LaunchCommand(

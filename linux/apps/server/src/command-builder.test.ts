@@ -3,6 +3,7 @@ import {
   buildMt5InstallerCommand,
   buildMt5LaunchCommand,
   buildWineAntiDebugCommand,
+  buildWineAudioDriverCommand,
   buildWebViewInstallCommand,
   buildWineEnv,
   buildWineWindowsVersionCommand,
@@ -49,6 +50,37 @@ test("installer commands follow the official Wine-based MT5 install flow", () =>
   expect(buildMt5InstallerCommand("/data/cache/mt5setup.exe")).toEqual([
     "wine",
     "/data/cache/mt5setup.exe",
+    "/auto",
+  ]);
+});
+
+test("buildWineAudioDriverCommand disables the audio driver when audio is off", () => {
+  expect(buildWineAudioDriverCommand(false)).toEqual([
+    "wine",
+    "reg",
+    "add",
+    "HKCU\\Software\\Wine\\Drivers",
+    "/v",
+    "Audio",
+    "/t",
+    "REG_SZ",
+    "/d",
+    "",
+    "/f",
+  ]);
+
+  expect(buildWineAudioDriverCommand(true)).toEqual([
+    "wine",
+    "reg",
+    "add",
+    "HKCU\\Software\\Wine\\Drivers",
+    "/v",
+    "Audio",
+    "/t",
+    "REG_SZ",
+    "/d",
+    "pulse",
+    "/f",
   ]);
 });
 
