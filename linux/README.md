@@ -225,13 +225,19 @@ services:
       MT5_STARTUP_EXPERT: "TelegramTC_EA"
       MT5_STARTUP_SYMBOL: "XAUUSDr"
       MT5_STARTUP_PERIOD: "H1"
-      MT5_STARTUP_PRESET: "TelegramTC_EA.set"
+      MT5_STARTUP_PRESET: "TelegramTC_EA.generated.set"
       MT5_PRELOAD_CHARTS: "0"
-      MT5_EA_BackendBaseUrl: "http://<HOST-IP>:18787/api"
-      MT5_EA_LinkCode: "<link-code-from-the-app>"
-      MT5_EA_PollSeconds: "1"
-      MT5_EA_HeartbeatSeconds: "5"
+      MT5_EA_BackendBaseUrl: "${MT5_EA_BACKEND_BASE_URL:?required}"
+      MT5_EA_LinkCode: "${MT5_EA_LINK_CODE:?required}"
+      MT5_EA_PollSeconds: "${MT5_EA_POLL_SECONDS:-1}"
+      MT5_EA_HeartbeatSeconds: "${MT5_EA_HEARTBEAT_SECONDS:-5}"
 ```
+
+For a hand-authored preset, set `MT5_STARTUP_PRESET` to that file and leave
+all `MT5_EA_*` entries out. Supplying `MT5_EA_*` tells the launcher to generate
+and overwrite the named preset. For SaaS deployments, keep tenant values in a
+separate ignored `tenant.env` and run `docker compose --env-file tenant.env up
+-d`; `${VAR:?required}` makes missing credentials fail before startup.
 
 `MaxBars` is intentionally pinned to `5000` when startup config management is
 enabled. Any environment variable beginning with `MT5_EA_` is written into the
@@ -266,13 +272,10 @@ For broker-neutral testing, use the official MetaQuotes installer URL:
 MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
 ```
 
-The image uses Debian Bookworm's distro Wine (8.0) with a `win64` prefix. The
-current official MT5 build prints an advisory "upgrade to Wine 10.0+" line but
-still installs and runs on Wine 8. Do **not** upgrade to WineHQ 11 to silence
-it: build 5836's installer then trips its anti-debug protector ("A debugger has
-been found running in your system") and refuses to install. Wine 8 is the
-working configuration. Mono/Gecko prompts are suppressed via `WINEDLLOVERRIDES`
-for the official installer.
+The image uses the WineHQ stable branch (Wine 11) on Debian Bookworm with a
+`win64` prefix. Before installation it applies the Wine registry compatibility
+settings needed by current MT5 installers. Mono/Gecko prompts can be suppressed
+via `WINEDLLOVERRIDES` for the official installer.
 
 Useful environment variables:
 
@@ -364,6 +367,8 @@ Current benign runtime warnings:
 Built-in safeguards:
 
 - Docker `init: true` is enabled to reap Wine child processes.
+- The API detects MT5 after Wine detaches its launcher, and restart/container
+  shutdown asks Wine to close the terminal cleanly before starting it again.
 - `SYS_PTRACE` and `seccomp=unconfined` are enabled because some MT5 installers
   use anti-debug checks that can misread Docker confinement.
 - Wine anti-debug registry hardening runs before installer startup.
@@ -388,8 +393,7 @@ persisted Docker volume.
 - Add upload size limits, overwrite confirmation, and automatic backups for EA
   uploads.
 - Add a terminal restart prompt after successful EA uploads.
-- Add a health watchdog for `Xvfb`, `openbox`, `x11vnc`, `websockify`, and MT5.
-- Clean stale X locks on startup before launching `Xvfb`.
+- Add an MT5 health signal beyond process presence, such as an EA heartbeat.
 - Add a lightweight full desktop environment such as XFCE or LXDE so popups,
   secondary windows, and basic file management are easier to access.
 - Add a simple window switcher or window-list helper if keeping the minimal

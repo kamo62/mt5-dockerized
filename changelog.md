@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.3.3 - 2026-08-25 (Patch)
+
+Release impact: Patch because this corrects MT5 restart/process detection and
+reduces container overhead without changing the API contract or EA inputs.
+
+- Detects the detached `terminal64.exe` process so repeated launch/restart
+  requests no longer replay `[StartUp]` into the same terminal and add Gold
+  charts.
+- Uses a clean Wine shutdown for API and container restarts, with a Compose
+  grace period before Docker forces termination.
+- Copies only the bundled server and built web app into the runtime image
+  instead of the build tree and `node_modules`.
+- Loads the Experts directory when install state changes instead of polling it
+  every 2.5 seconds.
+- Corrected the Wine runtime documentation to WineHQ stable (Wine 11).
+
+## 1.3.2 - 2026-07-26 (Patch)
+
+Release impact: Patch because this restores the manual MT5 install fallback
+and corrects release metadata without changing the API contract.
+
+- Restored the control UI Install action for disabled or failed auto-installs.
+- Aligned the README release version with `VERSION`.
+
 ## 1.3.1 - 2026-07-26 (Patch)
 
 Release impact: Patch because this updates the container's Wine runtime for

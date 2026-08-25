@@ -65,7 +65,8 @@ WORKDIR /app
 
 COPY --from=build /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=build /entrypoint.sh /entrypoint.sh
-COPY --from=build /app /app
+COPY --from=build /app/apps/server/dist /app/apps/server/dist
+COPY --from=build /app/apps/web/dist /app/apps/web/dist
 
 EXPOSE 3000 5900 6080
 
