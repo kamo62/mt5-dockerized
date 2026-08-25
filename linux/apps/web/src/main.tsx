@@ -1,5 +1,6 @@
 import {
   Activity,
+  Download,
   Monitor,
   Play,
   RefreshCcw,
@@ -51,7 +52,7 @@ type ExpertsInfo = {
   uploaded?: string[];
 };
 
-type PendingAction = "launch" | "stop" | "restart";
+type PendingAction = "install" | "launch" | "stop" | "restart";
 
 const emptyStatus: Mt5Status = {
   desktop: "starting",
@@ -197,9 +198,6 @@ function App() {
     }
     const nextStatus = (await response.json()) as Mt5Status;
     setStatus(nextStatus);
-    if (nextStatus.installed) {
-      await refreshExperts().catch(() => undefined);
-    }
   }
 
   async function refreshExperts(): Promise<void> {
@@ -224,6 +222,12 @@ function App() {
     }, 2500);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (status.installed) {
+      void refreshExperts().catch(() => undefined);
+    }
+  }, [status.installed]);
 
   async function runAction(action: PendingAction, request: () => Promise<Mt5Status>) {
     setPending(action);
@@ -278,6 +282,11 @@ function App() {
     }
   }
 
+  const canInstall =
+    status.desktop === "ready" &&
+    !status.installed &&
+    !status.installerRunning &&
+    status.mt5 !== "installing";
   const canLaunch = status.installed && status.mt5 !== "running";
   const canStop = status.mt5 === "running" || status.mt5 === "launching";
 
@@ -315,6 +324,17 @@ function App() {
           <div className="panel-section">
             <h2>Controls</h2>
             <div className="button-grid">
+              <ActionButton
+                disabled={!canInstall}
+                icon={<Download size={17} />}
+                label="Install"
+                onClick={() =>
+                  void runAction("install", () =>
+                    postJson<Mt5Status>("/api/mt5/install"),
+                  )
+                }
+                pending={pending === "install"}
+              />
               <ActionButton
                 disabled={!canLaunch}
                 icon={<Play size={17} />}

@@ -131,6 +131,22 @@ s3_sync_loop() {
 }
 start_s3_sync() { s3_sync_loop & S3SYNC_PID=$!; }
 
+shutdown() {
+  trap - EXIT TERM INT
+  [ -n "${BUN_PID:-}" ] && kill "$BUN_PID" >/dev/null 2>&1 || true
+
+  if pgrep -f '[t]erminal(64)?\.exe' >/dev/null 2>&1; then
+    timeout 20s wineboot --shutdown || echo "MT5 did not finish a clean Wine shutdown." >&2
+  fi
+
+  for pid in "${S3SYNC_PID:-}" "${WEBSOCKIFY_PID:-}" "${X11VNC_PID:-}" "${OPENBOX_PID:-}" "${XVFB_PID:-}"; do
+    [ -n "$pid" ] && kill "$pid" >/dev/null 2>&1 || true
+  done
+}
+
+trap 'exit 0' TERM INT
+trap shutdown EXIT
+
 # --- boot ---
 
 if ! start_display_stack; then
@@ -138,7 +154,7 @@ if ! start_display_stack; then
   exit 1
 fi
 
-bun --cwd /app/apps/server src/index.ts &
+bun --cwd /app/apps/server dist/index.js &
 BUN_PID=$!
 
 if s3_enabled; then

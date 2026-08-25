@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 import {
   buildMt5InstallerCommand,
   buildMt5LaunchCommand,
+  buildMt5ProcessCheckCommand,
   buildWineAntiDebugCommand,
   buildWineAudioDriverCommand,
   buildWebViewInstallCommand,
   buildWineEnv,
+  buildWineShutdownCommand,
   buildWineWindowsVersionCommand,
 } from "./command-builder";
 
@@ -82,6 +84,15 @@ test("buildWineAudioDriverCommand disables the audio driver when audio is off", 
     "pulse",
     "/f",
   ]);
+});
+
+test("MT5 lifecycle commands detect a detached terminal and shut Wine down cleanly", () => {
+  expect(buildMt5ProcessCheckCommand()).toEqual([
+    "pgrep",
+    "-f",
+    "[t]erminal(64)?\\.exe",
+  ]);
+  expect(buildWineShutdownCommand()).toEqual(["wineboot", "--shutdown"]);
 });
 
 test("buildMt5LaunchCommand starts terminal64.exe through Wine", () => {

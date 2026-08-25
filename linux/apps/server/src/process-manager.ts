@@ -12,8 +12,10 @@ import {
 import {
   buildMt5InstallerCommand,
   buildMt5LaunchCommand,
+  buildMt5ProcessCheckCommand,
   buildWineAntiDebugCommand,
   buildWineAudioDriverCommand,
+  buildWineShutdownCommand,
   buildWebViewInstallCommand,
   buildWineBootCommand,
   buildWineEnv,
@@ -97,6 +99,7 @@ export class Mt5ProcessManager {
   private readonly webViewTimeoutMs: number;
   private readonly processes = new Map<string, ManagedProcess>();
   private readonly logs: string[] = [];
+  private lifecyclePromise: Promise<void> = Promise.resolve();
   private mt5State: Mt5ProcessState = "idle";
   private lastError?: string;
   private installPromise?: Promise<void>;
@@ -189,19 +192,24 @@ export class Mt5ProcessManager {
     return this.getState();
   }
 
-  async launch(): Promise<Mt5Status> {
+  launch(): Promise<Mt5Status> {
+    return this.runLifecycle(() => this.launchOnce());
+  }
+
+  private async launchOnce(): Promise<Mt5Status> {
     const executable = this.installedExecutable();
     if (!executable) {
       throw new Error("MT5 is not installed yet. Start the installer first.");
     }
 
-    if (this.processes.has("mt5")) {
+    this.mt5State = "launching";
+    if (this.processes.has("mt5") || (await this.isMt5Running())) {
+      this.mt5State = "running";
       this.log("MT5 is already running.");
       return this.getState();
     }
 
     this.lastError = undefined;
-    this.mt5State = "launching";
     await this.ensureDataDirectories();
     // Match Wine's audio driver to ENABLE_AUDIO. Empty driver (audio off)
     // stops the ALSA "cannot find card" log noise on headless hosts. Non-fatal.
@@ -235,17 +243,39 @@ export class Mt5ProcessManager {
     return this.getState();
   }
 
-  async stop(): Promise<Mt5Status> {
+  stop(): Promise<Mt5Status> {
+    return this.runLifecycle(() => this.stopOnce());
+  }
+
+  private async stopOnce(): Promise<Mt5Status> {
     this.mt5State = "stopping";
-    await this.stopProcess("mt5", { intentional: true });
+    try {
+      if (this.processes.has("mt5") || (await this.isMt5Running())) {
+        await this.runOneShot(
+          "wine-shutdown",
+          buildWineShutdownCommand(),
+          this.wineCfgTimeoutMs,
+        );
+      }
+      await this.stopProcess("mt5", { intentional: true });
+      if (await this.isMt5Running()) {
+        throw new Error("MT5 is still running after Wine shutdown.");
+      }
+    } catch (error) {
+      this.mt5State = "failed";
+      this.captureError(error);
+      throw error;
+    }
     this.mt5State = "idle";
     this.log("MT5 terminal stopped.");
     return this.getState();
   }
 
-  async restart(): Promise<Mt5Status> {
-    await this.stop();
-    return this.launch();
+  restart(): Promise<Mt5Status> {
+    return this.runLifecycle(async () => {
+      await this.stopOnce();
+      return this.launchOnce();
+    });
   }
 
   async getExpertsInfo(): Promise<ExpertsDirectoryInfo> {
@@ -419,7 +449,7 @@ export class Mt5ProcessManager {
     this.captureOutput(name, child.stdout);
     this.captureOutput(name, child.stderr);
 
-    void child.exited.then((code) => {
+    void child.exited.then(async (code) => {
       const managed = this.processes.get(name);
       if (managed?.process !== child) {
         this.log(`${name} exited with code ${code} for a stale process.`);
@@ -440,6 +470,11 @@ export class Mt5ProcessManager {
         }
       }
       if (name === "mt5" && !managed.intentionalStop) {
+        if (await this.isMt5Running()) {
+          this.mt5State = "running";
+          this.log("Wine launcher exited; MT5 terminal continues running.");
+          return;
+        }
         this.mt5State = code === 0 ? "idle" : "failed";
         if (this.mt5State === "failed") {
           this.lastError = `MT5 exited unexpectedly with code ${code}.`;
@@ -489,6 +524,28 @@ export class Mt5ProcessManager {
       }
       throw new Error(`${name} exited with code ${code}.`);
     }
+  }
+
+  private async isMt5Running(): Promise<boolean> {
+    const child = spawn({
+      cmd: buildMt5ProcessCheckCommand(),
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    const code = await child.exited;
+    if (code > 1) {
+      throw new Error(`MT5 process check exited with code ${code}.`);
+    }
+    return code === 0;
+  }
+
+  private runLifecycle(operation: () => Promise<Mt5Status>): Promise<Mt5Status> {
+    const result = this.lifecyclePromise.then(operation);
+    this.lifecyclePromise = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private async stopProcess(

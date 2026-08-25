@@ -1,6 +1,6 @@
 # MT5 Dockerized
 
-Current release: `1.2.1`.
+Current release: `1.3.3`.
 
 This repo runs MetaTrader 5 from Docker. The current preferred setup is the
 Linux/Wine container in `linux/`: it auto-installs MT5 unattended on first boot,
@@ -15,9 +15,10 @@ uses multiple GB of RAM compared with the much lighter Linux/Wine setup.
 
 ![Linux MT5 control UI](docs/control-ui.png)
 
-*The Linux control UI: launch / restart / stop controls, runtime status, EA
-upload, the embedded noVNC desktop (blurred here), and a live runtime log.
-Install is automatic, so there is no Install button.*
+*The Linux control UI: install / launch / restart / stop controls, runtime
+status, EA upload, the embedded noVNC desktop (blurred here), and a live runtime
+log. Installation starts automatically by default, with a manual Install
+fallback when auto-install is disabled or fails.*
 
 ## Layout
 
@@ -154,14 +155,20 @@ services:
       MT5_STARTUP_EXPERT: "TelegramTC_EA"
       MT5_STARTUP_SYMBOL: "XAUUSDr"
       MT5_STARTUP_PERIOD: "H1"
-      MT5_STARTUP_PRESET: "TelegramTC_EA.set"
+      MT5_STARTUP_PRESET: "TelegramTC_EA.generated.set"
       MT5_PRELOAD_CHARTS: "0"
-      # Example EA-specific inputs — your EA will have different ones:
-      MT5_EA_BackendBaseUrl: "http://<HOST-IP>:18787/api"
-      MT5_EA_LinkCode: "<link-code-from-the-app>"
-      MT5_EA_PollSeconds: "1"
-      MT5_EA_HeartbeatSeconds: "5"
+      # Example EA-specific inputs. Keep values in tenant.env, not git:
+      MT5_EA_BackendBaseUrl: "${MT5_EA_BACKEND_BASE_URL:?required}"
+      MT5_EA_LinkCode: "${MT5_EA_LINK_CODE:?required}"
+      MT5_EA_PollSeconds: "${MT5_EA_POLL_SECONDS:-1}"
+      MT5_EA_HeartbeatSeconds: "${MT5_EA_HEARTBEAT_SECONDS:-5}"
 ```
+
+For a hand-authored preset, set `MT5_STARTUP_PRESET` to that file and leave
+all `MT5_EA_*` entries out. Supplying `MT5_EA_*` tells the launcher to generate
+and overwrite the named preset. For SaaS deployments, keep tenant values in a
+separate ignored `tenant.env` and run `docker compose --env-file tenant.env up
+-d`; `${VAR:?required}` makes missing credentials fail before startup.
 
 When `MT5_STARTUP_CONFIG=true`, the app updates MT5's persisted `common.ini`,
 writes the preset under `MQL5/Presets`, and launches MT5 with
@@ -204,11 +211,9 @@ installer:
 MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/metaquotes.ltd/mt5/mt5setup.exe
 ```
 
-The Linux image uses Debian Bookworm's distro Wine (8.0) with a `win64` prefix.
-The current official MT5 build shows an advisory "upgrade to Wine 10.0+" line
-but still installs and runs on Wine 8. Upgrading to WineHQ 11 breaks the
-official installer (its anti-debug protector blocks it), so the image stays on
-distro Wine 8.
+The Linux image uses the WineHQ stable branch (Wine 11) on Debian Bookworm with
+a `win64` prefix. The image applies the Wine registry compatibility settings
+needed by current MT5 installers before installation.
 
 ## Running Linux
 

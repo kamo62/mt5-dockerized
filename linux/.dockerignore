@@ -1,0 +1,7 @@
+**/dist
+**/dist-types
+**/node_modules
+.env
+tenant.env
+docker-compose.override.yml
+linux-mt5-data

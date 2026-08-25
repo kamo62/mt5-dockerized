@@ -18,6 +18,14 @@ export function buildWineBootCommand(): string[] {
   return ["wineboot", "--init"];
 }
 
+export function buildWineShutdownCommand(): string[] {
+  return ["wineboot", "--shutdown"];
+}
+
+export function buildMt5ProcessCheckCommand(): string[] {
+  return ["pgrep", "-f", "[t]erminal(64)?\\.exe"];
+}
+
 export function buildWineWindowsVersionCommand(): string[] {
   return ["winecfg", "-v=win10"];
 }

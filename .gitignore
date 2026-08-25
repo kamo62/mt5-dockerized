@@ -4,6 +4,7 @@ dist-types
 *.tsbuildinfo
 .DS_Store
 .env
+tenant.env
 docker-compose.override.yml
 docker-compose.override.yaml
 linux/docker-compose.override.yml
