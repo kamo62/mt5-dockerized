@@ -26,7 +26,7 @@ services:
       DESKTOP_WIDTH: "1920"
       DESKTOP_HEIGHT: "1080"
       MT5_DATA_DIR: "/data"
-      PUBLIC_NOVNC_URL: "${PUBLIC_NOVNC_URL:-http://localhost:17080/vnc.html?autoconnect=1&resize=scale&path=websockify}"
+      PUBLIC_NOVNC_URL: "${PUBLIC_NOVNC_URL:-}"
       WEBSOCKIFY_HEARTBEAT_SECONDS: "30"
       ENABLE_AUDIO: "${ENABLE_AUDIO:-false}"
       AUTO_LAUNCH_MT5: "${AUTO_LAUNCH_MT5:-true}"

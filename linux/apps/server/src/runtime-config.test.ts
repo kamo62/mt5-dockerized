@@ -14,6 +14,11 @@ test("Compose can name separate Linux MT5 containers from env files", () => {
 
 test("LAN desktop resolution preserves an explicit instance port and passes mapped ports through Compose", () => {
   expect(compose).toContain('NOVNC_PORT: "${NOVNC_PORT:-17080}"');
+  expect(compose).toContain('PUBLIC_NOVNC_URL: "${PUBLIC_NOVNC_URL:-}"');
+  expect(resolveRuntimeConfig({
+    requestUrl: "http://localhost:17301/api/runtime-config",
+    novncPort: "17081",
+  }).noVncUrl).toContain("localhost:17081/");
   expect(resolveRuntimeConfig({
     requestUrl: "http://192.168.0.100:17301/api/runtime-config",
     publicNoVncUrl: "http://192.168.0.100:17081/vnc.html",
