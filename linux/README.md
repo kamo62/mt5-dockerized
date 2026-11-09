@@ -378,7 +378,9 @@ terminal process is running. The UI shows the EA log status and failure.
 heartbeating, or can trade. Missing or unreadable journal evidence does not
 prove EA health. The journal signal does not replace consumer-side heartbeat
 ageing. Old journal entries are skipped on a managed launch; subsequent failure
-entries are reported. A fresh successful attachment clears the recorded failure.
+entries are reported. Each symbol/timeframe is tracked separately; a fresh
+successful attachment on that same chart clears its recorded failure. Any
+remaining failed instance keeps health at 503.
 The supervisor does not retry trades or compile, replace, or repair EA binaries.
 
 Before a managed launch, the configured compiled expert and any hand-authored

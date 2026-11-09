@@ -44,3 +44,31 @@ test("native journal failures survive launcher presence and later attachment can
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("another chart's successful attachment cannot clear a failed EA instance", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mt5-expert-instances-"));
+  const file = join(root, "logs/20261109.log");
+  const line = (message: string) => `AB\t0\t06:22:00.000\tExperts\t${message}\r\n`;
+  try {
+    await mkdir(join(root, "logs"));
+    const monitor = await ExpertLogMonitor.create(root, "Example");
+    await writeFile(file, [
+      "expert Example (XAUUSD,M5) loaded successfully",
+      "initializing of Example (XAUUSD,M5) failed with code 0 (symbol synchronization timeout)",
+      "expert Example (XAUUSD,M5) removed",
+      "expert Example (EURUSD,M5) loaded successfully",
+    ].map(line).join(""));
+    await monitor.poll();
+    expect(monitor.status.state).toBe("failed");
+    expect(monitor.status.lastError).toContain("XAUUSD,M5");
+    await appendFile(file, line("expert Example (XAUUSD,H1) loaded successfully"));
+    await monitor.poll();
+    expect(monitor.status.state).toBe("failed");
+    await appendFile(file, line("expert Example (XAUUSD,M5) loaded successfully"));
+    await monitor.poll();
+    expect(monitor.status.state).toBe("loaded");
+    expect(monitor.status.lastError).toBeUndefined();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

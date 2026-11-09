@@ -8,12 +8,13 @@ type Cursor = { offset: number; inode: number; pending: string; utf16: boolean }
 export class ExpertLogMonitor {
   readonly status: NonNullable<Mt5Status["expert"]>;
   private readonly cursors = new Map<string, Cursor>();
+  private readonly instances = new Map<string, string | undefined>();
   private readonly event: RegExp;
 
   private constructor(private readonly root: string, name: string) {
     this.status = { name, state: "unverified" };
     const escaped = name.replace(/\.ex5$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    this.event = new RegExp(`^(?:expert|initializing of)\\s+${escaped}(?:\\s|\\()`, "i");
+    this.event = new RegExp(`^(?:expert|initializing of)\\s+${escaped}(?=\\s|\\()(?:\\s*\\(([^)]*)\\))?`, "i");
   }
 
   static async create(root: string, name: string, adopting = false): Promise<ExpertLogMonitor> {
@@ -73,14 +74,17 @@ export class ExpertLogMonitor {
         cursor.pending = (lines.pop() ?? "").slice(-16384);
         for (const line of lines) {
           const message = line.match(/(?:^|\t)Experts\t(.+)$/)?.[1];
-          if (!message || !this.event.test(message)) continue;
+          const event = message && this.event.exec(message);
+          if (!message || !event) continue;
+          const instance = event[1]?.replace(/\s/g, "").toUpperCase() ?? "unknown";
           if (/\bfailed\b|\bremoved\b/i.test(message)) {
-            this.status.state = "failed";
-            this.status.lastError = `Configured EA failure: ${message}`;
+            this.instances.set(instance, `Configured EA failure: ${message}`);
           } else if (/\bloaded successfully\b/i.test(message)) {
-            this.status.state = "loaded";
-            this.status.lastError = undefined;
+            this.instances.set(instance, undefined);
           }
+          const failure = [...this.instances.values()].find((error) => error !== undefined);
+          this.status.state = failure ? "failed" : this.instances.size ? "loaded" : "unverified";
+          this.status.lastError = failure;
         }
       } finally {
         await handle.close();
