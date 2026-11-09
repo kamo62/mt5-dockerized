@@ -1,6 +1,6 @@
 # MT5 Dockerized
 
-Current release: `1.3.3`.
+Current release: `2.0.0`.
 
 This repo runs MetaTrader 5 from Docker. The current preferred setup is the
 Linux/Wine container in `linux/`: it auto-installs MT5 unattended on first boot,
@@ -80,7 +80,8 @@ The entrypoint clears stale X locks before starting Xvfb (so `docker restart`
 never hits "Server is already active for display N") and runs a watchdog that
 restarts Xvfb/openbox/x11vnc/websockify if any of them die. The container also
 auto-installs MT5 on first boot (`AUTO_INSTALL_MT5`, default on) and exposes a
-Docker `HEALTHCHECK` on `/api/status`.
+Docker `HEALTHCHECK` on `/api/health`, which reports unhealthy when MT5 is in a
+failed state or its configured EA has a recorded attachment failure.
 
 The persisted MT5 install lives inside the mounted data directory:
 
@@ -133,7 +134,9 @@ Some broker-branded installers use the roaming terminal layout:
 /data/wine-prefix/.mt5/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/<terminal-id>/MQL5/Experts
 ```
 
-The app checks both layouts. The `Target:` value in the upload panel is the path
+The app associates the data directory with the selected terminal installation.
+It rejects ambiguous matching data directories instead of choosing by modification
+time. Roaming prefixes use MT5's `origin.txt` installation mapping. The `Target:` value in the upload panel is the path
 the app is actually writing to.
 
 ## EA Autoload And common.ini
