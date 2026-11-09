@@ -68,11 +68,17 @@ COPY --from=build /entrypoint.sh /entrypoint.sh
 COPY --from=build /app/apps/server/dist /app/apps/server/dist
 COPY --from=build /app/apps/web/dist /app/apps/web/dist
 
+ARG APP_VERSION=development
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.version=$APP_VERSION
+LABEL org.opencontainers.image.revision=$VCS_REF
+
 EXPOSE 3000 5900 6080
 
-# Surfaces container health via the control API. Generous start period covers
-# first-boot Wine prefix creation + unattended MT5 install.
+# Surfaces container health via the control API. `/api/health` reports 503 when
+# MT5 is in a failed state; the status endpoint alone always returned 200.
+# Generous start period covers first-boot Wine prefix creation + install.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
-  CMD curl -fsS http://localhost:3000/api/status >/dev/null || exit 1
+  CMD curl -fsS http://localhost:3000/api/health >/dev/null || exit 1
 
 CMD ["/entrypoint.sh"]

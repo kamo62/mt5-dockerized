@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-import { mt5InstallDirectoryCandidates } from "./paths";
+import { dirname, resolve, sep } from "node:path";
+import { findMt5CommonIni, findMt5TerminalDataRoot } from "./paths";
 
 export type Mt5StartupConfig = {
   enabled: boolean;
@@ -21,10 +21,6 @@ export type Mt5StartupFiles = {
 };
 
 type Environment = Record<string, string | undefined>;
-type TerminalDataRoot = {
-  root: string;
-  commonIniPath: string;
-};
 
 function readBoolean(value: string | undefined, fallback: boolean): boolean {
   if (!value) {
@@ -209,93 +205,29 @@ export function buildMt5StartupConfig(
       MaxBars: config.chartMaxBars,
       PreloadCharts: config.chartPreload,
     },
-    Experts: {
-      AllowLiveTrading: "1",
-      Enabled: "1",
-      WebRequest: "1",
-    },
   };
 
   if (Object.keys(startup).length > 0) {
     updates.StartUp = startup;
+    updates.Experts = { AllowLiveTrading: "1", Enabled: "1", WebRequest: "1" };
   }
 
   return updateIni(removeIniSection(baseConfig, "StartUp"), updates);
 }
 
-function terminalDataRoots(winePrefix: string): string[] {
-  const usersDir = `${winePrefix}/drive_c/users`;
-  const portableRoots = mt5InstallDirectoryCandidates(winePrefix);
+function startupPath(root: string, relative: string): string {
+  const path = resolve(root, relative.replace(/\\/g, "/"));
+  if (!path.startsWith(`${resolve(root)}${sep}`) || /[\r\n]/.test(relative)) {
+    throw new Error("MT5 startup file must stay within its MQL5 directory.");
+  }
+  return path;
+}
 
+function requireStartupFile(path: string, label: string): void {
   try {
-    const roamingRoots = readdirSync(usersDir, { withFileTypes: true })
-      .filter((user) => user.isDirectory())
-      .flatMap((user) => {
-        const terminalRoot = `${usersDir}/${user.name}/AppData/Roaming/MetaQuotes/Terminal`;
-        try {
-          return readdirSync(terminalRoot, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
-            .map((entry) => `${terminalRoot}/${entry.name}`);
-        } catch {
-          return [];
-        }
-      });
-    return [...new Set([...roamingRoots, ...portableRoots])];
-  } catch {
-    return [...new Set(portableRoots)];
-  }
-}
-
-function commonIniCandidates(terminalRoot: string): string[] {
-  return [
-    `${terminalRoot}/config/common.ini`,
-    `${terminalRoot}/Config/common.ini`,
-  ];
-}
-
-function exactChildPath(parent: string, names: string[]): string | undefined {
-  try {
-    const entries = readdirSync(parent, { withFileTypes: true });
-    for (const name of names) {
-      const entry = entries.find((candidate) => candidate.name === name);
-      if (entry) {
-        return `${parent}/${entry.name}`;
-      }
-    }
-  } catch {
-    return undefined;
-  }
-}
-
-function findExistingCommonIni(terminalRoot: string): string | undefined {
-  const configDir = exactChildPath(terminalRoot, ["config", "Config"]);
-  if (configDir) {
-    const commonIni = exactChildPath(configDir, ["common.ini"]);
-    if (commonIni) {
-      return commonIni;
-    }
-  }
-
-  return commonIniCandidates(terminalRoot).find((candidate) => existsSync(candidate));
-}
-
-function findTerminalDataRoot(winePrefix: string): TerminalDataRoot | undefined {
-  return terminalDataRoots(winePrefix)
-    .map((root) => {
-      const commonIniPath = findExistingCommonIni(root);
-      return commonIniPath ? { root, commonIniPath } : undefined;
-    })
-    .filter((candidate): candidate is TerminalDataRoot => candidate !== undefined)
-    .sort((left, right) => {
-      try {
-        return (
-          statSync(right.commonIniPath).mtimeMs -
-          statSync(left.commonIniPath).mtimeMs
-        );
-      } catch {
-        return 0;
-      }
-    })[0];
+    if (statSync(path).isFile() && statSync(path).size > 0) return;
+  } catch { /* Report missing and empty startup files consistently. */ }
+  throw new Error(`Configured MT5 ${label} file was not found or is empty: ${path}`);
 }
 
 function buildPreset(config: Mt5StartupConfig): string {
@@ -320,22 +252,30 @@ export async function writeMt5StartupFiles(
     return undefined;
   }
 
-  const terminalRoot = findTerminalDataRoot(winePrefix);
-  if (!terminalRoot) {
+  const terminalRoot = findMt5TerminalDataRoot(winePrefix);
+  const commonPath = terminalRoot && findMt5CommonIni(terminalRoot);
+  if (!terminalRoot || !commonPath) {
     throw new Error("MT5 terminal data folder with config/common.ini was not found.");
   }
 
-  const commonPath = terminalRoot.commonIniPath;
+  if (config.expertName) {
+    const expert = config.expertName.replace(/\.ex5$/i, "");
+    requireStartupFile(startupPath(`${terminalRoot}/MQL5/Experts`, `${expert}.ex5`), "expert");
+  }
+  let presetPath: string | undefined;
+  if (config.presetFilename) {
+    presetPath = startupPath(`${terminalRoot}/MQL5/Presets`, config.presetFilename);
+    if (Object.keys(config.presetInputs).length === 0) requireStartupFile(presetPath, "preset");
+  }
   const baseConfig = decodeMt5Text(await readFile(commonPath));
   const generatedConfig = buildMt5StartupConfig(baseConfig, config);
-  await writeFile(commonPath, encodeMt5Text(generatedConfig));
 
-  let presetPath: string | undefined;
-  if (config.presetFilename && Object.keys(config.presetInputs).length > 0) {
-    presetPath = `${terminalRoot.root}/MQL5/Presets/${config.presetFilename}`;
+  if (presetPath && Object.keys(config.presetInputs).length > 0) {
     await mkdir(dirname(presetPath), { recursive: true });
     await writeFile(presetPath, encodeMt5Text(buildPreset(config)));
   }
+
+  await writeFile(commonPath, encodeMt5Text(generatedConfig));
 
   return {
     commonIniPath: commonPath,

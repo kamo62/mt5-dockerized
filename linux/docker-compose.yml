@@ -6,7 +6,8 @@ services:
     platform: linux/amd64
     container_name: "${LINUX_MT5_CONTAINER_NAME:-linux-mt5}"
     init: true
-    stop_grace_period: 30s
+    # Covers the entrypoint's bounded Wine shutdown wait plus wineserver -k.
+    stop_grace_period: 60s
     cap_add:
       - SYS_PTRACE
     security_opt:
@@ -20,20 +21,28 @@ services:
       - "${VNC_PORT:-15900}:5900"
     environment:
       PORT: "3000"
+      NOVNC_PORT: "${NOVNC_PORT:-17080}"
       DISPLAY_ID: ":99"
       DESKTOP_WIDTH: "1920"
       DESKTOP_HEIGHT: "1080"
       MT5_DATA_DIR: "/data"
-      PUBLIC_NOVNC_URL: "${PUBLIC_NOVNC_URL:-http://localhost:17080/vnc.html?autoconnect=1&resize=scale&path=websockify}"
+      PUBLIC_NOVNC_URL: "${PUBLIC_NOVNC_URL:-}"
       WEBSOCKIFY_HEARTBEAT_SECONDS: "30"
       ENABLE_AUDIO: "${ENABLE_AUDIO:-false}"
-      AUTO_LAUNCH_MT5: "true"
+      AUTO_LAUNCH_MT5: "${AUTO_LAUNCH_MT5:-true}"
+      AUTO_LAUNCH_DELAY_MS: "${AUTO_LAUNCH_DELAY_MS:-2500}"
+      MT5_WINEBOOT_TIMEOUT_MS: "${MT5_WINEBOOT_TIMEOUT_MS:-900000}"
+      MT5_WINECFG_TIMEOUT_MS: "${MT5_WINECFG_TIMEOUT_MS:-180000}"
+      MT5_WEBVIEW2_TIMEOUT_MS: "${MT5_WEBVIEW2_TIMEOUT_MS:-600000}"
+      MT5_STOP_TIMEOUT_MS: "${MT5_STOP_TIMEOUT_MS:-20000}"
+      MT5_RECONCILE_INTERVAL_MS: "${MT5_RECONCILE_INTERVAL_MS:-10000}"
       # Unattended install: the container installs MT5 by itself on first boot
       # (mt5setup.exe /auto) with no GUI click-through. Set to "false" if you
       # prefer to click Install in the control UI yourself.
       AUTO_INSTALL_MT5: "${AUTO_INSTALL_MT5:-true}"
       MT5_INSTALLER_URL: "${MT5_INSTALLER_URL:-https://download.terminal.free/cdn/web/12040/mt5/hfmarketssa5setup.exe}"
       MT5_INSTALL_WEBVIEW2: "${MT5_INSTALL_WEBVIEW2:-false}"
+      WEBVIEW2_INSTALLER_URL: "${WEBVIEW2_INSTALLER_URL:-}"
       # ============================================================
       # OPTIONAL FEATURES — all OFF by default. Uncomment a block to
       # enable it (or set the vars via an --env-file /

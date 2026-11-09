@@ -98,6 +98,11 @@ test("writeMt5StartupFiles updates UTF-16 common.ini and writes EA preset", asyn
       utf16("[Common]\r\nLogin=54870107\r\nServer=HFMarketsSA-Live2\r\n[Experts]\r\nWebRequestUrl=encrypted\r\n"),
     );
 
+    const executable = join(root, "drive_c/Program Files/MetaTrader 5/terminal64.exe");
+    mkdirSync(join(root, "drive_c/Program Files/MetaTrader 5"), { recursive: true });
+    writeFileSync(executable, "fixture");
+    mkdirSync(join(terminalRoot, "MQL5/Experts"), { recursive: true });
+    writeFileSync(join(terminalRoot, "MQL5/Experts/TelegramTC_EA.ex5"), "fixture");
     const files = await writeMt5StartupFiles(root, {
       enabled: true,
       chartMaxBars: "5000",
@@ -140,6 +145,11 @@ test("writeMt5StartupFiles supports official portable installs under Program Fil
       utf16("[Common]\r\nSource=download.terminal.free\r\n[Experts]\r\nWebRequestUrl=encrypted\r\n"),
     );
 
+    const executable = join(root, "drive_c/Program Files/MetaTrader 5/terminal64.exe");
+    mkdirSync(join(root, "drive_c/Program Files/MetaTrader 5"), { recursive: true });
+    writeFileSync(executable, "fixture");
+    mkdirSync(join(terminalRoot, "MQL5/Experts"), { recursive: true });
+    writeFileSync(join(terminalRoot, "MQL5/Experts/TelegramTC_EA.ex5"), "fixture");
     const files = await writeMt5StartupFiles(root, {
       enabled: true,
       chartMaxBars: "5000",
@@ -189,4 +199,27 @@ test("mt5StartupConfigFromEnv maps compose variables to startup options", () => 
       LinkCode: "OYW74CFC",
     },
   });
+});
+
+test("startup rejects missing experts and presets before changing account configuration", async () => {
+  const root = join(process.env.TMPDIR ?? "/tmp", `mt5-preflight-${Date.now()}-${Math.random()}`);
+  const terminal = join(root, "drive_c/Program Files/MetaTrader 5");
+  const common = join(terminal, "Config/common.ini");
+  try {
+    mkdirSync(join(terminal, "Config"), { recursive: true });
+    mkdirSync(join(terminal, "MQL5/Experts"), { recursive: true });
+    writeFileSync(join(terminal, "terminal64.exe"), "fixture");
+    const original = utf16("[Common]\r\nServer=fixture\r\n");
+    writeFileSync(common, original);
+    const config = mt5StartupConfigFromEnv({ MT5_STARTUP_CONFIG: "true", MT5_STARTUP_EXPERT: "Example", MT5_STARTUP_PRESET: "Example.set" });
+    await expect(writeMt5StartupFiles(root, config)).rejects.toThrow("expert file");
+    expect(readFileSync(common).equals(original)).toBe(true);
+    writeFileSync(join(terminal, "MQL5/Experts/Example.ex5"), "fixture");
+    await expect(writeMt5StartupFiles(root, config)).rejects.toThrow("preset file");
+    expect(readFileSync(common).equals(original)).toBe(true);
+    config.presetFilename = "../../outside.set";
+    await expect(writeMt5StartupFiles(root, config)).rejects.toThrow("within its MQL5 directory");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

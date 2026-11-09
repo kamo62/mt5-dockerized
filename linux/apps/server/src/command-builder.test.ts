@@ -7,6 +7,7 @@ import {
   buildWineAudioDriverCommand,
   buildWebViewInstallCommand,
   buildWineEnv,
+  buildWineKillCommand,
   buildWineShutdownCommand,
   buildWineWindowsVersionCommand,
 } from "./command-builder";
@@ -93,6 +94,7 @@ test("MT5 lifecycle commands detect a detached terminal and shut Wine down clean
     "[t]erminal(64)?\\.exe",
   ]);
   expect(buildWineShutdownCommand()).toEqual(["wineboot", "--shutdown"]);
+  expect(buildWineKillCommand()).toEqual(["wineserver", "-k"]);
 });
 
 test("buildMt5LaunchCommand starts terminal64.exe through Wine", () => {

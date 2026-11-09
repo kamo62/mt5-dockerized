@@ -39,6 +39,7 @@ type Mt5Status = {
     mt5ExecutablePath?: string;
   };
   lastError?: string;
+  expert?: { name: string; state: "unverified" | "loaded" | "failed"; lastError?: string };
   logs: string[];
 };
 
@@ -78,8 +79,13 @@ const fallbackRuntimeConfig: RuntimeConfig = {
     "http://localhost:6080/vnc.html?autoconnect=1&resize=scale&path=websockify",
 };
 
+const actionHeaders = { "x-linux-mt5": "1" };
+
 async function postJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { method: "POST" });
+  const response = await fetch(url, {
+    headers: actionHeaders,
+    method: "POST",
+  });
   const data = (await response.json()) as unknown;
   if (
     !response.ok &&
@@ -94,17 +100,23 @@ async function postJson<T>(url: string): Promise<T> {
 }
 
 function stateLabel(status: Mt5Status): string {
-  if (status.mt5 === "running") {
-    return "MT5 RUNNING";
+  if (status.mt5 === "failed" || status.expert?.state === "failed") {
+    return "ATTENTION";
   }
   if (status.installerRunning || status.mt5 === "installing") {
     return "INSTALLER ACTIVE";
   }
+  if (status.mt5 === "launching") {
+    return "MT5 LAUNCHING";
+  }
+  if (status.mt5 === "stopping") {
+    return "MT5 STOPPING";
+  }
+  if (status.mt5 === "running") {
+    return "MT5 RUNNING";
+  }
   if (status.installed) {
     return "MT5 INSTALLED";
-  }
-  if (status.mt5 === "failed") {
-    return "ATTENTION";
   }
   return "STARTING";
 }
@@ -185,6 +197,7 @@ function App() {
   const [uploadingExperts, setUploadingExperts] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string>();
   const [desktopKey, setDesktopKey] = useState(0);
+  const [offline, setOffline] = useState(false);
 
   const logLines = useMemo(
     () => status.logs.slice(-120).map(parseLog).reverse(),
@@ -192,12 +205,18 @@ function App() {
   );
 
   async function refresh(): Promise<void> {
-    const response = await fetch("/api/status");
-    if (!response.ok) {
-      throw new Error(`Status request failed with HTTP ${response.status}.`);
+    try {
+      const response = await fetch("/api/status");
+      if (!response.ok) {
+        throw new Error(`Status request failed with HTTP ${response.status}.`);
+      }
+      const nextStatus = (await response.json()) as Mt5Status;
+      setStatus(nextStatus);
+      setOffline(false);
+    } catch (refreshError) {
+      setOffline(true);
+      throw refreshError;
     }
-    const nextStatus = (await response.json()) as Mt5Status;
-    setStatus(nextStatus);
   }
 
   async function refreshExperts(): Promise<void> {
@@ -209,9 +228,7 @@ function App() {
   }
 
   useEffect(() => {
-    void refresh().catch((refreshError) =>
-      setError(refreshError instanceof Error ? refreshError.message : "Refresh failed."),
-    );
+    void refresh().catch(() => undefined);
     void fetch("/api/runtime-config")
       .then((response) => response.json())
       .then((config: RuntimeConfig) => setRuntimeConfig(config))
@@ -224,10 +241,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // The Experts directory is created by the terminal on first launch, so
+    // refresh on runtime transitions too, not only when `installed` flips.
     if (status.installed) {
       void refreshExperts().catch(() => undefined);
     }
-  }, [status.installed]);
+  }, [status.installed, status.mt5]);
 
   async function runAction(action: PendingAction, request: () => Promise<Mt5Status>) {
     setPending(action);
@@ -265,6 +284,7 @@ function App() {
     try {
       const response = await fetch("/api/mt5/experts", {
         body: form,
+        headers: actionHeaders,
         method: "POST",
       });
       const data = (await response.json()) as ExpertsInfo | { error?: string };
@@ -282,13 +302,17 @@ function App() {
     }
   }
 
+  const transitioning =
+    status.mt5 === "launching" || status.mt5 === "stopping";
+  const busy = Boolean(pending) || transitioning || status.installerRunning || status.mt5 === "installing";
   const canInstall =
     status.desktop === "ready" &&
     !status.installed &&
     !status.installerRunning &&
-    status.mt5 !== "installing";
-  const canLaunch = status.installed && status.mt5 !== "running";
-  const canStop = status.mt5 === "running" || status.mt5 === "launching";
+    status.mt5 !== "installing" &&
+    !busy;
+  const canLaunch = status.installed && status.mt5 !== "running" && !busy;
+  const canStop = status.mt5 === "running" && !busy;
 
   return (
     <main className="shell">
@@ -306,16 +330,20 @@ function App() {
           <StatusPill label="DESKTOP" value={status.desktop.toUpperCase()} />
           <StatusPill
             label="STATE"
-            tone={status.mt5 === "failed" ? "bad" : status.installed ? "good" : "warn"}
+            tone={status.mt5 === "failed" || status.expert?.state === "failed" ? "bad" : status.installed ? "good" : "warn"}
             value={stateLabel(status)}
           />
         </div>
       </section>
 
-      {error || status.lastError ? (
+      {offline || error || status.lastError ? (
         <section className="error-strip">
           <Activity size={17} />
-          <span>{error ?? status.lastError}</span>
+          <span>
+            {offline
+              ? "Control server unreachable; status may be stale."
+              : (error ?? status.lastError)}
+          </span>
         </section>
       ) : null}
 
@@ -347,7 +375,7 @@ function App() {
                 pending={pending === "launch"}
               />
               <ActionButton
-                disabled={!status.installed}
+                disabled={!status.installed || busy}
                 icon={<RotateCcw size={17} />}
                 label="Restart"
                 onClick={() =>
@@ -372,6 +400,12 @@ function App() {
           <div className="panel-section">
             <h2>Runtime</h2>
             <dl className="details">
+              {status.expert ? (
+                <div>
+                  <dt>EA log status</dt>
+                  <dd>{status.expert.name}: {status.expert.state} (heartbeat unverified)</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>Wine prefix</dt>
                 <dd>{status.paths.winePrefix}</dd>

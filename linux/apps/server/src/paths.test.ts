@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 import {
   findMt5ExpertsDirectory,
+  findMt5TerminalDataRoot,
   getRuntimePaths,
   isMt5ExecutablePath,
   mt5ExpertsDirectoryCandidates,
@@ -18,6 +19,27 @@ test("getRuntimePaths keeps the Wine prefix and downloads under the data directo
   expect(paths.winePrefix).toBe("/data/wine-prefix/.mt5");
   expect(paths.mt5InstallerPath).toBe("/data/cache/mt5setup.exe");
   expect(paths.webviewInstallerPath).toBe("/data/cache/webview2.exe");
+});
+
+test("terminal selection stays with the executable and rejects ambiguous matching roots", () => {
+  const root = join(process.env.TMPDIR ?? "/tmp", `mt5-identity-${Date.now()}-${Math.random()}`);
+  const install = join(root, "drive_c/Program Files/MetaTrader 5");
+  const other = join(root, "drive_c/Program Files/Broker B");
+  const roaming = join(root, "drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/ABC");
+  try {
+    for (const dir of [install, other]) {
+      mkdirSync(join(dir, "MQL5/Experts"), { recursive: true });
+      writeFileSync(join(dir, "terminal64.exe"), "fixture");
+    }
+    expect(findMt5ExpertsDirectory(root)).toBe(join(install, "MQL5/Experts"));
+    mkdirSync(join(roaming, "MQL5/Experts"), { recursive: true });
+    writeFileSync(join(roaming, "origin.txt"), Buffer.from("\ufeffC:\\Program Files\\MetaTrader 5", "utf16le"));
+    expect(() => findMt5TerminalDataRoot(root)).toThrow("Multiple MT5 data folders");
+    writeFileSync(join(roaming, "origin.txt"), "C:\\Program Files\\Broker B");
+    expect(findMt5TerminalDataRoot(root)).toBe(install);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("mt5ExecutableCandidates returns the common 64-bit and 32-bit Wine locations", () => {
@@ -102,6 +124,9 @@ test("findMt5ExpertsDirectory discovers terminal data directories", () => {
     );
     mkdirSync(expertsDir, { recursive: true });
 
+    const executable = join(root, "drive_c/Program Files/MetaTrader 5/terminal64.exe");
+    mkdirSync(join(root, "drive_c/Program Files/MetaTrader 5"), { recursive: true });
+    writeFileSync(executable, "fixture");
     expect(mt5ExpertsDirectoryCandidates(root)).toContain(expertsDir);
     expect(findMt5ExpertsDirectory(root)).toBe(expertsDir);
   } finally {
@@ -122,6 +147,9 @@ test("findMt5ExpertsDirectory discovers official portable install experts direct
     );
     mkdirSync(expertsDir, { recursive: true });
 
+    const executable = join(root, "drive_c/Program Files/MetaTrader 5/terminal64.exe");
+    mkdirSync(join(root, "drive_c/Program Files/MetaTrader 5"), { recursive: true });
+    writeFileSync(executable, "fixture");
     expect(mt5ExpertsDirectoryCandidates(root)).toContain(expertsDir);
     expect(findMt5ExpertsDirectory(root)).toBe(expertsDir);
   } finally {

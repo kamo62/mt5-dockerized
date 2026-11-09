@@ -22,6 +22,12 @@ export function buildWineShutdownCommand(): string[] {
   return ["wineboot", "--shutdown"];
 }
 
+// Last-resort stop when Wine has not closed the detached terminal within the
+// shutdown grace period. `wineserver -k` terminates the whole prefix.
+export function buildWineKillCommand(): string[] {
+  return ["wineserver", "-k"];
+}
+
 export function buildMt5ProcessCheckCommand(): string[] {
   return ["pgrep", "-f", "[t]erminal(64)?\\.exe"];
 }

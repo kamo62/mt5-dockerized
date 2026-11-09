@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createRuntimePaths, type RuntimePaths } from "@linux-mt5/shared";
 
 export function getRuntimePaths(dataDir = process.env.MT5_DATA_DIR ?? "/data"): RuntimePaths {
@@ -71,13 +72,52 @@ export function mt5ExpertsDirectoryCandidates(winePrefix: string): string[] {
 }
 
 export function findMt5ExpertsDirectory(winePrefix: string): string | undefined {
-  return mt5ExpertsDirectoryCandidates(winePrefix)
-    .filter((candidate) => existsSync(candidate))
-    .sort((left, right) => {
-      try {
-        return statSync(right).mtimeMs - statSync(left).mtimeMs;
-      } catch {
-        return 0;
+  const root = findMt5TerminalDataRoot(winePrefix);
+  const experts = root && join(root, "MQL5/Experts");
+  return experts && existsSync(experts) ? experts : undefined;
+}
+
+export function findMt5CommonIni(root: string): string | undefined {
+  for (const directory of ["config", "Config"]) {
+    try {
+      if (!readdirSync(root).includes(directory)) continue;
+      if (readdirSync(join(root, directory)).includes("common.ini")) {
+        return join(root, directory, "common.ini");
       }
-    })[0];
+    } catch { /* The terminal may not have created its configuration yet. */ }
+  }
+}
+
+function normaliseInstallPath(value: string): string {
+  return value.replace(/^\ufeff/, "").replace(/\\/g, "/").replace(/\/+$/, "").trim().toLowerCase();
+}
+
+export function findMt5TerminalDataRoot(winePrefix: string): string | undefined {
+  const executable = findMt5Executable(winePrefix);
+  if (!executable) return undefined;
+  const installRoot = dirname(executable);
+  const windowsInstall = normaliseInstallPath(
+    `C:/${installRoot.slice(`${winePrefix}/drive_c/`.length)}`,
+  );
+  const roots = unique(mt5ExpertsDirectoryCandidates(winePrefix).map((path) => dirname(dirname(path))));
+  const roaming = roots.filter((root) => root.includes("/MetaQuotes/Terminal/"));
+  const hasData = (root: string) => Boolean(findMt5CommonIni(root)) || existsSync(join(root, "MQL5/Experts"));
+  const singleInstall = mt5ExecutableCandidates(winePrefix).filter((path) => existsSync(path)).length === 1;
+  const candidates = roots.filter((root) => {
+    if (!hasData(root)) return false;
+    if (!roaming.includes(root)) return root === installRoot;
+    try {
+      const bytes = readFileSync(join(root, "origin.txt"));
+      const origin = bytes[0] === 0xff && bytes[1] === 0xfe
+        ? bytes.toString("utf16le") : bytes.toString("utf8");
+      return normaliseInstallPath(origin) === windowsInstall;
+    } catch {
+      // Older prefixes without origin metadata are safe only when unambiguous.
+      return singleInstall && roaming.filter(hasData).length === 1;
+    }
+  });
+  if (candidates.length > 1) {
+    throw new Error("Multiple MT5 data folders match the selected installation; resolve the ambiguity before launch or upload.");
+  }
+  return candidates[0];
 }

@@ -137,6 +137,18 @@ shutdown() {
 
   if pgrep -f '[t]erminal(64)?\.exe' >/dev/null 2>&1; then
     timeout 20s wineboot --shutdown || echo "MT5 did not finish a clean Wine shutdown." >&2
+
+    # wineboot can return before the detached terminal has flushed its chart
+    # profile and exited. Give it a bounded grace period, then force the prefix
+    # down before the X server is killed.
+    for _ in $(seq 1 40); do
+      pgrep -f '[t]erminal(64)?\.exe' >/dev/null 2>&1 || break
+      sleep 0.5
+    done
+    if pgrep -f '[t]erminal(64)?\.exe' >/dev/null 2>&1; then
+      echo "MT5 still running after Wine shutdown; forcing wineserver exit." >&2
+      timeout 10s wineserver -k || true
+    fi
   fi
 
   for pid in "${S3SYNC_PID:-}" "${WEBSOCKIFY_PID:-}" "${X11VNC_PID:-}" "${OPENBOX_PID:-}" "${XVFB_PID:-}"; do

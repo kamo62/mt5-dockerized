@@ -1,6 +1,6 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { spawn, type Subprocess } from "bun";
 import {
   createInitialMt5Status,
@@ -15,13 +15,15 @@ import {
   buildMt5ProcessCheckCommand,
   buildWineAntiDebugCommand,
   buildWineAudioDriverCommand,
+  buildWineKillCommand,
   buildWineShutdownCommand,
   buildWebViewInstallCommand,
   buildWineBootCommand,
   buildWineEnv,
   buildWineWindowsVersionCommand,
 } from "./command-builder";
-import { findMt5Executable, findMt5ExpertsDirectory, getRuntimePaths } from "./paths";
+import { findMt5Executable, findMt5ExpertsDirectory, findMt5TerminalDataRoot, getRuntimePaths } from "./paths";
+import { ExpertLogMonitor } from "./expert-health";
 import {
   mt5StartupConfigFromEnv,
   writeMt5StartupFiles,
@@ -36,6 +38,8 @@ const defaultWebViewUrl =
 export const DEFAULT_WINE_BOOT_TIMEOUT_MS = 900_000;
 export const DEFAULT_WINECFG_TIMEOUT_MS = 180_000;
 export const DEFAULT_WEBVIEW_TIMEOUT_MS = 600_000;
+export const DEFAULT_MT5_STOP_TIMEOUT_MS = 20_000;
+export const DEFAULT_RECONCILE_INTERVAL_MS = 10_000;
 
 type ManagedProcess = {
   name: string;
@@ -76,6 +80,41 @@ export function readTimeoutMs(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+// Delays allow 0 (launch immediately), unlike timeouts where 0 means unset.
+function readDelayMs(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+// MT5 only looks for presets in MQL5/Presets, DLLs in MQL5/Libraries, and
+// includes in MQL5/Include. Everything else (source/compiled experts) belongs
+// in MQL5/Experts.
+export function uploadTargetDirectory(expertsDir: string, filename: string): string {
+  const mql5Root = dirname(expertsDir);
+  switch (extname(filename).toLowerCase()) {
+    case ".set":
+      return join(mql5Root, "Presets");
+    case ".dll":
+      return join(mql5Root, "Libraries");
+    case ".mqh":
+      return join(mql5Root, "Include");
+    default:
+      return expertsDir;
+  }
+}
+
+async function waitForExit(child: Subprocess, timeoutMs: number): Promise<number | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      child.exited,
+      new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), timeoutMs); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function hasFile(path: string): boolean {
   try {
     return existsSync(path) && statSync(path).size > 0;
@@ -97,12 +136,18 @@ export class Mt5ProcessManager {
   private readonly wineBootTimeoutMs: number;
   private readonly wineCfgTimeoutMs: number;
   private readonly webViewTimeoutMs: number;
+  private readonly stopTimeoutMs: number;
   private readonly processes = new Map<string, ManagedProcess>();
   private readonly logs: string[] = [];
   private lifecyclePromise: Promise<void> = Promise.resolve();
   private mt5State: Mt5ProcessState = "idle";
   private lastError?: string;
   private installPromise?: Promise<void>;
+  private startupApplied = false;
+  private reconciling = false;
+  private reconcileFailure = false;
+  private lifecycleGeneration = 0;
+  private expertMonitor?: ExpertLogMonitor;
 
   constructor(options: ManagerOptions = {}) {
     this.paths = options.paths ?? getRuntimePaths();
@@ -114,10 +159,11 @@ export class Mt5ProcessManager {
       options.autoInstall ?? readBooleanEnv("AUTO_INSTALL_MT5", true);
     this.installWebView =
       options.installWebView ?? readBooleanEnv("MT5_INSTALL_WEBVIEW2", false);
-    this.mt5InstallerUrl = options.mt5InstallerUrl ?? process.env.MT5_INSTALLER_URL ?? defaultMt5Url;
+    this.mt5InstallerUrl =
+      options.mt5InstallerUrl || process.env.MT5_INSTALLER_URL || defaultMt5Url;
     this.webViewInstallerUrl =
-      options.webViewInstallerUrl ??
-      process.env.WEBVIEW2_INSTALLER_URL ??
+      options.webViewInstallerUrl ||
+      process.env.WEBVIEW2_INSTALLER_URL ||
       defaultWebViewUrl;
     this.startupConfig = mt5StartupConfigFromEnv(process.env);
     this.wineBootTimeoutMs = readTimeoutMs(
@@ -132,9 +178,14 @@ export class Mt5ProcessManager {
       "MT5_WEBVIEW2_TIMEOUT_MS",
       DEFAULT_WEBVIEW_TIMEOUT_MS,
     );
+    this.stopTimeoutMs = readTimeoutMs(
+      "MT5_STOP_TIMEOUT_MS",
+      DEFAULT_MT5_STOP_TIMEOUT_MS,
+    );
 
+    this.startReconcileLoop();
     this.log(`Linux MT5 data directory: ${this.paths.dataDir}.`);
-    const bootDelayMs = Number(process.env.AUTO_LAUNCH_DELAY_MS ?? 2500);
+    const bootDelayMs = readDelayMs("AUTO_LAUNCH_DELAY_MS", 2500);
     if (this.installedExecutable()) {
       if (this.autoLaunch) {
         this.log("Detected existing MT5 install; scheduling automatic launch.");
@@ -165,8 +216,11 @@ export class Mt5ProcessManager {
         ...this.paths,
         mt5ExecutablePath: executable,
       },
-      lastError: this.lastError,
-      logs: this.logs.slice(-250),
+      lastError: this.lastError ?? this.expertMonitor?.status.lastError,
+      expert: this.expertMonitor?.status,
+      // The control UI renders the most recent 120 lines; sending more only
+      // inflates every status poll.
+      logs: this.logs.slice(-120),
     };
 
     return redactPathsForStatus(status);
@@ -202,44 +256,68 @@ export class Mt5ProcessManager {
       throw new Error("MT5 is not installed yet. Start the installer first.");
     }
 
+    this.lifecycleGeneration += 1;
     this.mt5State = "launching";
-    if (this.processes.has("mt5") || (await this.isMt5Running())) {
-      this.mt5State = "running";
-      this.log("MT5 is already running.");
-      return this.getState();
-    }
-
-    this.lastError = undefined;
-    await this.ensureDataDirectories();
-    // Match Wine's audio driver to ENABLE_AUDIO. Empty driver (audio off)
-    // stops the ALSA "cannot find card" log noise on headless hosts. Non-fatal.
     try {
-      await this.runOneShot(
-        "wine-audio",
-        buildWineAudioDriverCommand(Boolean(this.pulseServer)),
-        this.wineCfgTimeoutMs,
+      if (this.processes.has("mt5") || (await this.isMt5Running())) {
+        // Startup config is applied through MT5's `/config:` launch flag, so a
+        // terminal that is already running has not seen this boot's [StartUp].
+        // Restart once to apply it, then leave repeated launches idempotent.
+        if (this.startupConfig.enabled && !this.startupApplied) {
+          this.log(
+            "MT5 is running without the configured startup state; restarting to apply it.",
+          );
+          await this.stopOnce();
+        } else {
+          this.mt5State = "running";
+          this.lastError = undefined;
+          this.reconcileFailure = false;
+          await this.monitorExpert(true);
+          this.log("MT5 is already running.");
+          return this.getState();
+        }
+      }
+
+      this.lastError = undefined;
+      await this.ensureDataDirectories();
+      // Match Wine's audio driver to ENABLE_AUDIO. Empty driver (audio off)
+      // stops the ALSA "cannot find card" log noise on headless hosts. Non-fatal.
+      try {
+        await this.runOneShot(
+          "wine-audio",
+          buildWineAudioDriverCommand(Boolean(this.pulseServer)),
+          this.wineCfgTimeoutMs,
+        );
+      } catch (error) {
+        this.log(
+          `Audio driver setup skipped: ${error instanceof Error ? error.message : "unknown error"}.`,
+        );
+      }
+      const startupFiles = await writeMt5StartupFiles(
+        this.paths.winePrefix,
+        this.startupConfig,
       );
+      await this.monitorExpert(false);
+      if (startupFiles?.commonIniPath) {
+        this.log(`Updated MT5 common.ini: ${startupFiles.commonIniPath}.`);
+      }
+      if (startupFiles?.presetPath) {
+        this.log(`Generated MT5 EA preset: ${startupFiles.presetPath}.`);
+      }
+      this.startProcess(
+        "mt5",
+        buildMt5LaunchCommand(executable, startupFiles?.commonIniWindowsPath),
+      );
+      this.startupApplied = true;
+      this.mt5State = "running";
+      this.reconcileFailure = false;
+      this.log("MT5 terminal launched.");
     } catch (error) {
-      this.log(
-        `Audio driver setup skipped: ${error instanceof Error ? error.message : "unknown error"}.`,
-      );
+      this.mt5State = "failed";
+      this.reconcileFailure = false;
+      this.captureError(error);
+      throw error;
     }
-    const startupFiles = await writeMt5StartupFiles(
-      this.paths.winePrefix,
-      this.startupConfig,
-    );
-    if (startupFiles?.commonIniPath) {
-      this.log(`Updated MT5 common.ini: ${startupFiles.commonIniPath}.`);
-    }
-    if (startupFiles?.presetPath) {
-      this.log(`Generated MT5 EA preset: ${startupFiles.presetPath}.`);
-    }
-    this.startProcess(
-      "mt5",
-      buildMt5LaunchCommand(executable, startupFiles?.commonIniWindowsPath),
-    );
-    this.mt5State = "running";
-    this.log("MT5 terminal launched.");
     return this.getState();
   }
 
@@ -248,18 +326,46 @@ export class Mt5ProcessManager {
   }
 
   private async stopOnce(): Promise<Mt5Status> {
+    this.lifecycleGeneration += 1;
     this.mt5State = "stopping";
     try {
+      // Mark the child intentional before Wine starts closing it so its exit
+      // handler does not report a normal stop as an unexpected MT5 crash.
+      this.markIntentionalStop("mt5");
       if (this.processes.has("mt5") || (await this.isMt5Running())) {
-        await this.runOneShot(
-          "wine-shutdown",
-          buildWineShutdownCommand(),
-          this.wineCfgTimeoutMs,
-        );
+        // A hung or failed wineboot must not skip the force-kill fallback; that
+        // is precisely the case the fallback exists for.
+        try {
+          await this.runOneShot(
+            "wine-shutdown",
+            buildWineShutdownCommand(),
+            this.stopTimeoutMs,
+          );
+        } catch (error) {
+          this.log(
+            `Graceful Wine shutdown failed: ${error instanceof Error ? error.message : "unknown error"}. Continuing with process wait.`,
+          );
+        }
       }
       await this.stopProcess("mt5", { intentional: true });
-      if (await this.isMt5Running()) {
-        throw new Error("MT5 is still running after Wine shutdown.");
+      if (!(await this.waitForMt5Exit(this.stopTimeoutMs))) {
+        this.log(
+          `MT5 did not exit within ${this.stopTimeoutMs}ms; forcing wineserver shutdown.`,
+        );
+        try {
+          await this.runOneShot(
+            "wineserver-kill",
+            buildWineKillCommand(),
+            this.stopTimeoutMs,
+          );
+        } catch (error) {
+          this.log(
+            `wineserver -k failed: ${error instanceof Error ? error.message : "unknown error"}.`,
+          );
+        }
+        if (!(await this.waitForMt5Exit(this.stopTimeoutMs))) {
+          throw new Error("MT5 is still running after wineserver shutdown.");
+        }
       }
     } catch (error) {
       this.mt5State = "failed";
@@ -267,6 +373,10 @@ export class Mt5ProcessManager {
       throw error;
     }
     this.mt5State = "idle";
+    this.lastError = undefined;
+    this.startupApplied = false;
+    this.expertMonitor = undefined;
+    this.reconcileFailure = false;
     this.log("MT5 terminal stopped.");
     return this.getState();
   }
@@ -295,7 +405,9 @@ export class Mt5ProcessManager {
 
     for (const file of files) {
       const filename = this.safeUploadFilename(file.name);
-      await Bun.write(`${expertsDir}/${filename}`, file);
+      const targetDir = uploadTargetDirectory(expertsDir, filename);
+      await mkdir(targetDir, { recursive: true });
+      await Bun.write(join(targetDir, filename), file);
       uploaded.push(filename);
     }
 
@@ -395,19 +507,51 @@ export class Mt5ProcessManager {
     path: string,
     label: string,
   ): Promise<void> {
-    if (hasFile(path)) {
+    // Keep the source URL next to the cached file so changing
+    // MT5_INSTALLER_URL does not silently reuse the previous installer.
+    const markerPath = `${path}.url`;
+    let cachedUrl: string | undefined;
+    try {
+      cachedUrl = readFileSync(markerPath, "utf8").trim() || undefined;
+    } catch {
+      cachedUrl = undefined;
+    }
+
+    const cached = hasFile(path);
+    if (cached && cachedUrl === url) {
       this.log(`${label} already cached.`);
       return;
     }
+    if (cached) {
+      this.log(
+        cachedUrl
+          ? `${label} source URL changed; replacing the cached file.`
+          : `${label} has no source metadata; re-downloading to verify provenance.`,
+      );
+    }
 
     this.log(`Downloading ${label}.`);
-    await mkdir(dirname(path), { recursive: true });
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`${label} download failed with HTTP ${response.status}.`);
+    try {
+      await mkdir(dirname(path), { recursive: true });
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`${label} download failed with HTTP ${response.status}.`);
+      }
+      await Bun.write(path, await response.arrayBuffer());
+      await Bun.write(markerPath, url);
+      this.log(`${label} downloaded.`);
+    } catch (error) {
+      // Only fall back to a cached file when its source is unknown. A changed
+      // URL must fail rather than silently install the previous broker build.
+      if (!cached || cachedUrl) {
+        throw error;
+      }
+      // Offline or transient failure: keep the existing installer usable, but
+      // leave the source marker unset so the next boot retries verification.
+      this.log(
+        `Could not verify the cached ${label} (${error instanceof Error ? error.message : "download failed"}); using the existing file.`,
+      );
     }
-    await Bun.write(path, await response.arrayBuffer());
-    this.log(`${label} downloaded.`);
   }
 
   private installedExecutable(): string | undefined {
@@ -445,6 +589,7 @@ export class Mt5ProcessManager {
       },
     });
 
+    const generation = this.lifecycleGeneration;
     this.processes.set(name, { name, process: child });
     this.captureOutput(name, child.stdout);
     this.captureOutput(name, child.stderr);
@@ -465,22 +610,26 @@ export class Mt5ProcessManager {
         } else if (this.autoLaunch && !this.processes.has("mt5")) {
           this.log("Unattended install finished; scheduling automatic launch.");
           setTimeout(() => {
+            // launchOnce handles the case where the installer left the
+            // terminal running: it restarts once to apply [StartUp] and stays
+            // idempotent if a manual launch already did so.
             void this.launch().catch((error) => this.captureError(error));
-          }, Number(process.env.AUTO_LAUNCH_DELAY_MS ?? 2500));
+          }, readDelayMs("AUTO_LAUNCH_DELAY_MS", 2500));
         }
       }
       if (name === "mt5" && !managed.intentionalStop) {
-        if (await this.isMt5Running()) {
+        const running = await this.isMt5Running();
+        if (generation !== this.lifecycleGeneration || this.processes.has(name)) return;
+        if (running) {
           this.mt5State = "running";
           this.log("Wine launcher exited; MT5 terminal continues running.");
           return;
         }
-        this.mt5State = code === 0 ? "idle" : "failed";
-        if (this.mt5State === "failed") {
-          this.lastError = `MT5 exited unexpectedly with code ${code}.`;
-        }
+        this.mt5State = "failed";
+        this.reconcileFailure = true;
+        this.lastError = `MT5 exited unexpectedly with code ${code}.`;
       }
-    });
+    }).catch((error) => this.captureError(error));
   }
 
   private async runOneShot(
@@ -510,20 +659,12 @@ export class Mt5ProcessManager {
     this.captureOutput(name, child.stdout);
     this.captureOutput(name, child.stderr);
 
-    let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill();
-    }, timeoutMs);
-    const code = await child.exited.finally(() => clearTimeout(timeout));
-    if (code !== 0) {
-      if (timedOut) {
-        throw new Error(
-          `${name} timed out after ${Math.round(timeoutMs / 1000)}s and exited with code ${code}.`,
-        );
-      }
-      throw new Error(`${name} exited with code ${code}.`);
+    const code = await waitForExit(child, timeoutMs);
+    if (code === undefined) {
+      child.kill("SIGKILL");
+      throw new Error(`${name} timed out after ${timeoutMs}ms.`);
     }
+    if (code !== 0) throw new Error(`${name} exited with code ${code}.`);
   }
 
   private async isMt5Running(): Promise<boolean> {
@@ -540,12 +681,123 @@ export class Mt5ProcessManager {
   }
 
   private runLifecycle(operation: () => Promise<Mt5Status>): Promise<Mt5Status> {
-    const result = this.lifecyclePromise.then(operation);
+    const result = this.lifecyclePromise.then(() => {
+      if (this.installPromise || this.processes.has("installer")) {
+        throw new Error("Wait for the MT5 installer to finish before changing terminal state.");
+      }
+      return operation();
+    });
     this.lifecyclePromise = result.then(
       () => undefined,
       () => undefined,
     );
     return result;
+  }
+
+  // MT5 detaches from its Wine launcher, so once that child exits it is no
+  // longer supervised. Poll the terminal process while the manager believes it
+  // is running, otherwise a later crash is invisible in the UI and healthcheck.
+  private startReconcileLoop(): void {
+    const interval = readTimeoutMs(
+      "MT5_RECONCILE_INTERVAL_MS",
+      DEFAULT_RECONCILE_INTERVAL_MS,
+    );
+    const timer = setInterval(() => {
+      void this.reconcileMt5State();
+    }, interval);
+    (timer as { unref?: () => void }).unref?.();
+  }
+
+  private async reconcileMt5State(): Promise<void> {
+    if (this.reconciling) return;
+    this.reconciling = true;
+    try {
+      const monitor = this.expertMonitor;
+      if (this.mt5State === "running" && monitor) {
+        try {
+          const before = monitor.status.lastError;
+          await monitor.poll();
+          if (this.expertMonitor === monitor && monitor.status.lastError && before !== monitor.status.lastError) {
+            this.log(monitor.status.lastError);
+          }
+        } catch (error) {
+          this.log(`EA log check failed: ${error instanceof Error ? error.message : "unknown error"}.`);
+        }
+      }
+      if (this.processes.has("mt5")) return;
+
+      const previousState = this.mt5State;
+      const recovering = previousState === "failed" && this.reconcileFailure;
+      if (!recovering && previousState !== "running") {
+        return;
+      }
+
+      const generation = this.lifecycleGeneration;
+      const running = await this.isMt5Running();
+
+      // A launch/stop may have completed while pgrep was running, and the
+      // result may describe the previous terminal. Discard it in that case.
+      if (
+        generation !== this.lifecycleGeneration ||
+        this.mt5State !== previousState ||
+        this.processes.has("mt5")
+      ) {
+        return;
+      }
+
+      if (running) {
+        if (recovering) {
+          this.mt5State = "running";
+          this.reconcileFailure = false;
+          this.lastError = undefined;
+          this.log("MT5 terminal is running again; clearing reconcile failure.");
+        }
+        return;
+      }
+
+      if (recovering) {
+        return;
+      }
+
+      this.mt5State = "failed";
+      this.reconcileFailure = true;
+      this.lastError = "MT5 terminal is no longer running.";
+      this.log("Detached MT5 terminal disappeared; marking status failed.");
+    } catch (error) {
+      this.log(
+        `MT5 reconciliation check failed: ${error instanceof Error ? error.message : "unknown error"}.`,
+      );
+    } finally {
+      this.reconciling = false;
+    }
+  }
+
+  private async monitorExpert(adopting: boolean): Promise<void> {
+    if (!this.startupConfig.enabled || !this.startupConfig.expertName) return;
+    if (adopting && this.expertMonitor) return;
+    const root = findMt5TerminalDataRoot(this.paths.winePrefix);
+    if (!root) throw new Error("MT5 data folder for EA log monitoring was not found.");
+    this.expertMonitor = await ExpertLogMonitor.create(root, this.startupConfig.expertName, adopting);
+  }
+
+  private markIntentionalStop(name: string): void {
+    const managed = this.processes.get(name);
+    if (managed) {
+      managed.intentionalStop = true;
+    }
+  }
+
+  private async waitForMt5Exit(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      if (!(await this.isMt5Running())) {
+        return true;
+      }
+      if (Date.now() >= deadline) {
+        return false;
+      }
+      await Bun.sleep(250);
+    }
   }
 
   private async stopProcess(
@@ -559,8 +811,11 @@ export class Mt5ProcessManager {
 
     managed.intentionalStop = options.intentional ?? false;
     managed.process.kill();
-    await managed.process.exited.catch(() => undefined);
-    this.processes.delete(name);
+    if (await waitForExit(managed.process, this.stopTimeoutMs) === undefined) {
+      managed.process.kill("SIGKILL");
+      await waitForExit(managed.process, 1000);
+    }
+    if (this.processes.get(name) === managed) this.processes.delete(name);
   }
 
   private captureOutput(
@@ -592,5 +847,8 @@ export class Mt5ProcessManager {
     if (this.logs.length > 500) {
       this.logs.shift();
     }
+    // Mirror the in-memory runtime log to stdout so `docker logs` retains it
+    // across API restarts and container recreation.
+    console.log(line);
   }
 }

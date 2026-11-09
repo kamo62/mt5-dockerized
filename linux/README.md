@@ -143,8 +143,13 @@ To install manually instead, set `AUTO_INSTALL_MT5=false` and:
 4. The unattended installer completes on its own; click `Launch` after
    `terminal64.exe` is detected.
 
-The container also exposes a Docker `HEALTHCHECK` (polls `/api/status`), so
-`docker ps` shows health and orchestration can react to a stuck container.
+The container also exposes a Docker `HEALTHCHECK` (polls `/api/health`), so
+`docker ps` shows health and orchestration can react to a stuck container. The
+health endpoint returns 503 when MT5 is in a failed state, including an
+unrequested clean exit or detached terminal disappearance, or when the
+configured EA has a recorded initialisation failure or removal. Docker
+`restart: unless-stopped` restarts an exited container; it does not restart a
+container solely because the healthcheck fails.
 
 The Wine prefix is persisted at:
 
@@ -177,7 +182,10 @@ The upload endpoint is still available for compiled indicators and scripts
 The official MetaQuotes installer can run in a portable-style layout where
 `Config/common.ini` and `MQL5/Experts` live under the install folder in
 `Program Files`. Broker-branded installs may instead use the roaming MetaQuotes
-terminal folder. The app checks both layouts.
+terminal folder. The app resolves one data directory associated with the selected terminal
+installation. Roaming data directories are matched through MT5's `origin.txt`;
+ambiguous matching directories cause an explicit error. Uploads, startup config
+and generated presets use that same resolution.
 
 The upload endpoint accepts common EA-related files:
 
@@ -294,6 +302,8 @@ AUTO_LAUNCH_DELAY_MS=2500
 MT5_WINEBOOT_TIMEOUT_MS=900000
 MT5_WINECFG_TIMEOUT_MS=180000
 MT5_WEBVIEW2_TIMEOUT_MS=600000
+MT5_STOP_TIMEOUT_MS=20000
+MT5_RECONCILE_INTERVAL_MS=10000
 MT5_INSTALLER_URL=https://download.terminal.free/cdn/web/12040/mt5/hfmarketssa5setup.exe
 MT5_INSTALL_WEBVIEW2=false
 WEBVIEW2_INSTALLER_URL=https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/f2910a1e-e5a6-4f17-b52d-7faf525d17f8/MicrosoftEdgeWebview2Setup.exe
@@ -339,6 +349,7 @@ WINEDLLOVERRIDES=mscoree=d;mshtml=d   # suppress the headless Wine Mono/Gecko pr
 ## API
 
 ```text
+GET  /api/health
 GET  /api/status
 GET  /api/runtime-config
 GET  /api/mt5/experts
@@ -348,6 +359,34 @@ POST /api/mt5/launch
 POST /api/mt5/stop
 POST /api/mt5/restart
 ```
+
+`/api/health` returns 503 when MT5 is in a failed state. Every `POST` requires
+the custom header `X-Linux-MT5: 1`; the control UI sends it automatically. The
+header makes cross-origin browser form posts fail, which prevents an arbitrary
+website from stopping or restarting the terminal through the operator's browser.
+
+### EA log health
+
+When both `MT5_STARTUP_CONFIG` and `MT5_STARTUP_EXPERT` are set, the supervisor
+reads new entries in the selected terminal's native journal on each reconcile
+interval. `/api/status` and `/api/health` include an `expert` object with a
+`name`, `state` (`unverified`, `loaded`, or `failed`), and optional `lastError`.
+An initialisation failure or removal makes health return 503 even while the
+terminal process is running. The UI shows the EA log status and failure.
+
+`loaded` means MT5 recorded an attachment, not that the EA initialised, is
+heartbeating, or can trade. Missing or unreadable journal evidence does not
+prove EA health. The journal signal does not replace consumer-side heartbeat
+ageing. Old journal entries are skipped on a managed launch; subsequent failure
+entries are reported. Each symbol/timeframe is tracked separately; a fresh
+successful attachment on that same chart clears its recorded failure. Any
+remaining failed instance keeps health at 503.
+The supervisor does not retry trades or compile, replace, or repair EA binaries.
+
+Before a managed launch, the configured compiled expert and any hand-authored
+preset must exist and be non-empty. Chart-only configuration preserves existing
+algorithmic trading permissions. Multiple matching data directories must be
+resolved by the operator instead of selecting one by timestamp.
 
 ## Operations Notes
 
@@ -368,7 +407,12 @@ Built-in safeguards:
 
 - Docker `init: true` is enabled to reap Wine child processes.
 - The API detects MT5 after Wine detaches its launcher, and restart/container
-  shutdown asks Wine to close the terminal cleanly before starting it again.
+  shutdown asks Wine to close the terminal cleanly before starting it again,
+  waiting for exit and falling back to `wineserver -k` if needed.
+- The API reconciles the detached terminal process periodically, so a crash or
+  manual close surfaces as `failed` instead of showing `running` forever.
+- EA uploads route `.set` files to `MQL5/Presets`, `.dll` to `MQL5/Libraries`,
+  `.mqh` to `MQL5/Include`, and experts to `MQL5/Experts`.
 - `SYS_PTRACE` and `seccomp=unconfined` are enabled because some MT5 installers
   use anti-debug checks that can misread Docker confinement.
 - Wine anti-debug registry hardening runs before installer startup.
@@ -383,7 +427,7 @@ container directly to the public internet. If it needs to be reachable outside
 the LAN, put it behind a protected network boundary and add authentication/TLS
 for the browser surfaces.
 
-The project does not store broker credentials or automate trading account login.
+The application does not automate trading account login.
 Any account credentials entered into MT5 are handled by MT5/Wine inside the
 persisted Docker volume.
 
@@ -393,7 +437,8 @@ persisted Docker volume.
 - Add upload size limits, overwrite confirmation, and automatic backups for EA
   uploads.
 - Add a terminal restart prompt after successful EA uploads.
-- Add an MT5 health signal beyond process presence, such as an EA heartbeat.
+- Integrate an EA heartbeat where stronger health evidence than native journal
+  attachment/failure events is required.
 - Add a lightweight full desktop environment such as XFCE or LXDE so popups,
   secondary windows, and basic file management are easier to access.
 - Add a simple window switcher or window-list helper if keeping the minimal

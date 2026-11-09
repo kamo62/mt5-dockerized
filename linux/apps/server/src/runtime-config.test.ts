@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
+import { resolveRuntimeConfig } from "./runtime-config";
 
 const linuxRoot = join(import.meta.dir, "../../..");
 const compose = readFileSync(join(linuxRoot, "docker-compose.yml"), "utf8");
@@ -9,6 +10,31 @@ const entrypoint = readFileSync(join(linuxRoot, "docker/entrypoint.sh"), "utf8")
 
 test("Compose can name separate Linux MT5 containers from env files", () => {
   expect(compose).toContain('container_name: "${LINUX_MT5_CONTAINER_NAME:-linux-mt5}"');
+});
+
+test("LAN desktop resolution preserves an explicit instance port and passes mapped ports through Compose", () => {
+  expect(compose).toContain('NOVNC_PORT: "${NOVNC_PORT:-17080}"');
+  expect(compose).toContain('PUBLIC_NOVNC_URL: "${PUBLIC_NOVNC_URL:-}"');
+  expect(resolveRuntimeConfig({
+    requestUrl: "http://localhost:17301/api/runtime-config",
+    novncPort: "17081",
+  }).noVncUrl).toContain("localhost:17081/");
+  expect(resolveRuntimeConfig({
+    requestUrl: "http://192.168.0.100:17301/api/runtime-config",
+    publicNoVncUrl: "http://192.168.0.100:17081/vnc.html",
+    novncPort: "17081",
+  }).noVncUrl).toBe("http://192.168.0.100:17081/vnc.html");
+  expect(resolveRuntimeConfig({
+    requestUrl: "http://192.168.0.100:17301/api/runtime-config",
+    publicNoVncUrl: "https://desktop.example.invalid/vnc.html",
+    novncPort: "17081",
+  }).noVncUrl).toContain("192.168.0.100:17081/");
+  expect(resolveRuntimeConfig({
+    requestUrl: "http://internal:3000/api/runtime-config",
+    publicNoVncUrl: "https://desktop.example.invalid/vnc.html",
+    novncPort: "17081",
+    forwardedProto: "https",
+  }).noVncUrl).toBe("https://desktop.example.invalid/vnc.html");
 });
 
 test("Compose publishes raw VNC for local stream tools", () => {

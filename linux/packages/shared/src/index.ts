@@ -32,6 +32,11 @@ export const Mt5StatusSchema = z.object({
   installerFiles: InstallerFilesSchema,
   paths: RuntimePathsSchema,
   lastError: z.string().optional(),
+  expert: z.object({
+    name: z.string(),
+    state: z.enum(["unverified", "loaded", "failed"]),
+    lastError: z.string().optional(),
+  }).optional(),
   logs: z.array(z.string()).default([]),
 });
 

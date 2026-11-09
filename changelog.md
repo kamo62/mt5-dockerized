@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0 - 2026-11-09 (Major)
+
+Release impact: Major because every state-changing API request now requires
+`X-Linux-MT5: 1`. Existing API clients must add this header; the control UI
+sends it automatically. The service remains intended for a trusted network.
+
+- Detect configured-EA initialisation failures and removals in MT5's native
+  journal, expose the evidence separately from terminal state, and return 503
+  from `/api/health` for a recorded EA failure. Log status does not prove a
+  working EA heartbeat or broker connection.
+- Resolve startup configuration, uploads and presets against one terminal
+  installation, using roaming `origin.txt` metadata and rejecting ambiguity.
+- Reject missing or empty configured EA/preset files before changing MT5 config.
+- Fix the compressed-response build error and preserve custom noVNC ports
+  so multiple containers display the correct account's desktop.
+- Bound child-process waits, reject installer/lifecycle overlap, ignore stale
+  exit callbacks, and report every unrequested terminal exit as a failure.
+- Retain lifecycle serialisation, clean Wine shutdown with force-kill fallback,
+  upload routing, bounded status logs, and the smaller bundled runtime image.
+- Keep chart-only startup management from enabling algorithmic trading.
+- Add focused regressions for terminal identity, startup validation, native EA
+  journal events, lifecycle races/deadlines, and multi-instance desktop URLs.
+
 ## 1.3.3 - 2026-08-25 (Patch)
 
 Release impact: Patch because this corrects MT5 restart/process detection and

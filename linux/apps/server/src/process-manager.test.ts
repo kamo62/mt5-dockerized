@@ -6,6 +6,7 @@ import {
   DEFAULT_WINE_BOOT_TIMEOUT_MS,
   Mt5ProcessManager,
   readTimeoutMs,
+  uploadTargetDirectory,
 } from "./process-manager";
 
 test("Wine bootstrap timeout allows slow first-run prefix creation", () => {
@@ -31,6 +32,111 @@ test("readTimeoutMs accepts positive numeric overrides and rejects bad values", 
     } else {
       process.env[key] = previous;
     }
+  }
+});
+
+test("upload routing puts presets, DLLs, and includes in MT5's expected folders", () => {
+  const experts = "/data/prefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/ABC/MQL5/Experts";
+  const mql5 = "/data/prefix/drive_c/users/root/AppData/Roaming/MetaQuotes/Terminal/ABC/MQL5";
+
+  expect(uploadTargetDirectory(experts, "EA.ex5")).toBe(experts);
+  expect(uploadTargetDirectory(experts, "EA.mq5")).toBe(experts);
+  expect(uploadTargetDirectory(experts, "EA.set")).toBe(`${mql5}/Presets`);
+  expect(uploadTargetDirectory(experts, "helper.dll")).toBe(`${mql5}/Libraries`);
+  expect(uploadTargetDirectory(experts, "common.mqh")).toBe(`${mql5}/Include`);
+});
+
+test("stop force-kills the prefix when graceful Wine shutdown fails", async () => {
+  const root = join(
+    process.env.TMPDIR ?? "/tmp",
+    `linux-mt5-stop-${Date.now()}-${Math.random()}`,
+  );
+  const paths = createRuntimePaths(root);
+  const executable = join(
+    paths.winePrefix,
+    "drive_c/Program Files/MetaTrader 5/terminal64.exe",
+  );
+  mkdirSync(dirname(executable), { recursive: true });
+  writeFileSync(executable, "fake");
+
+  const previousStopTimeout = process.env.MT5_STOP_TIMEOUT_MS;
+  process.env.MT5_STOP_TIMEOUT_MS = "1";
+
+  try {
+    const manager = new Mt5ProcessManager({
+      paths,
+      autoInstall: false,
+      autoLaunch: false,
+    });
+    const internals = manager as unknown as {
+      isMt5Running: () => Promise<boolean>;
+      runOneShot: (name: string, command: string[], timeoutMs: number) => Promise<void>;
+    };
+    const events: string[] = [];
+    let running = true;
+
+    internals.isMt5Running = async () => running;
+    internals.runOneShot = async (name) => {
+      if (name === "wine-shutdown") {
+        events.push("shutdown");
+        throw new Error("wineboot hung");
+      }
+      if (name === "wineserver-kill") {
+        events.push("kill");
+        running = false;
+      }
+    };
+
+    const status = await manager.stop();
+
+    expect(events).toEqual(["shutdown", "kill"]);
+    expect(status.mt5).toBe("idle");
+  } finally {
+    if (previousStopTimeout === undefined) {
+      delete process.env.MT5_STOP_TIMEOUT_MS;
+    } else {
+      process.env.MT5_STOP_TIMEOUT_MS = previousStopTimeout;
+    }
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("reconcile marks a disappeared terminal failed and recovers when it returns", async () => {
+  const root = join(
+    process.env.TMPDIR ?? "/tmp",
+    `linux-mt5-reconcile-${Date.now()}-${Math.random()}`,
+  );
+  const paths = createRuntimePaths(root);
+
+  try {
+    const manager = new Mt5ProcessManager({
+      paths,
+      autoInstall: false,
+      autoLaunch: false,
+    });
+    const internals = manager as unknown as {
+      mt5State: string;
+      isMt5Running: () => Promise<boolean>;
+      reconcileMt5State: () => Promise<void>;
+    };
+    let running = true;
+    internals.isMt5Running = async () => running;
+    internals.mt5State = "running";
+
+    await internals.reconcileMt5State();
+    expect(internals.mt5State).toBe("running");
+
+    running = false;
+    await internals.reconcileMt5State();
+    expect(internals.mt5State).toBe("failed");
+    expect(manager.getState().lastError).toBe("MT5 terminal is no longer running.");
+
+    running = true;
+    await internals.reconcileMt5State();
+    expect(internals.mt5State).toBe("running");
+    expect(manager.getState().lastError).toBeUndefined();
+  } finally {
+    rmSync(root, { force: true, recursive: true });
   }
 });
 
@@ -109,4 +215,54 @@ test("restart waits for an in-flight launch before shutting down and relaunching
     }
     rmSync(root, { force: true, recursive: true });
   }
+});
+
+test("a timed-out child that ignores SIGTERM fails within the deadline", async () => {
+  const manager = new Mt5ProcessManager({ autoInstall: false, autoLaunch: false });
+  const internals = manager as unknown as { runOneShot(name: string, command: string[], timeoutMs: number): Promise<void> };
+  const start = performance.now();
+  await expect(internals.runOneShot("deadline-probe", ["sh", "-c", "trap '' TERM; sleep 0.5; exit 0"], 30)).rejects.toThrow("timed out");
+  expect(performance.now() - start).toBeLessThan(400);
+});
+
+test("an unintentional clean exit fails and a stale callback cannot overwrite Stop", async () => {
+  const manager = new Mt5ProcessManager({ autoInstall: false, autoLaunch: false });
+  const internals = manager as unknown as {
+    mt5State: string;
+    isMt5Running(): Promise<boolean>;
+    startProcess(name: string, command: string[]): void;
+  };
+  internals.isMt5Running = async () => false;
+  internals.mt5State = "running";
+  internals.startProcess("mt5", ["sh", "-c", "exit 0"]);
+  for (let i = 0; i < 50 && manager.getState().mt5 !== "failed"; i++) await Bun.sleep(5);
+  expect(manager.getState().mt5).toBe("failed");
+  expect(manager.getState().lastError).toContain("unexpectedly with code 0");
+  let release!: (value: boolean) => void;
+  let started!: () => void;
+  const checking = new Promise<void>((resolve) => { started = resolve; });
+  let calls = 0;
+  internals.isMt5Running = async () => {
+    if (calls++ === 0) {
+      started();
+      return new Promise<boolean>((resolve) => { release = resolve; });
+    }
+    return false;
+  };
+  internals.startProcess("mt5", ["sh", "-c", "exit 0"]);
+  await checking;
+  await manager.stop();
+  release(true);
+  await Bun.sleep(10);
+  expect(manager.getState().mt5).toBe("idle");
+});
+
+test("lifecycle requests wait for installation to finish", async () => {
+  const manager = new Mt5ProcessManager({ autoInstall: false, autoLaunch: false });
+  const internals = manager as unknown as { installPromise?: Promise<void> };
+  internals.installPromise = Promise.resolve();
+  await expect(manager.launch()).rejects.toThrow("installer to finish");
+  await expect(manager.restart()).rejects.toThrow("installer to finish");
+  internals.installPromise = undefined;
+  expect((await manager.stop()).mt5).toBe("idle");
 });
