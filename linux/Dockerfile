@@ -15,11 +15,6 @@ RUN chmod +x /entrypoint.sh \
 
 FROM debian:bookworm-slim
 
-ARG APP_VERSION=development
-ARG VCS_REF=unknown
-LABEL org.opencontainers.image.version=$APP_VERSION
-LABEL org.opencontainers.image.revision=$VCS_REF
-
 ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY_ID=:99
 ENV DESKTOP_WIDTH=1920
@@ -72,6 +67,11 @@ COPY --from=build /usr/local/bin/bun /usr/local/bin/bun
 COPY --from=build /entrypoint.sh /entrypoint.sh
 COPY --from=build /app/apps/server/dist /app/apps/server/dist
 COPY --from=build /app/apps/web/dist /app/apps/web/dist
+
+ARG APP_VERSION=development
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.version=$APP_VERSION
+LABEL org.opencontainers.image.revision=$VCS_REF
 
 EXPOSE 3000 5900 6080
 
