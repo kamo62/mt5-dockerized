@@ -245,16 +245,71 @@ function windowsPath(winePrefix: string, path: string): string {
   return `Z:${path.replace(/\//g, "\\")}`;
 }
 
+export type CustomStartup = { expert: string; symbol: string; period: string; preset: string; profile: string };
+
+export function customStartupIni(config: CustomStartup): string {
+  const sections: string[] = [];
+  if (config.profile) sections.push(`[Charts]\r\nProfileLast=${config.profile}`);
+  const startup: string[] = [];
+  if (config.expert) startup.push(`Expert=${config.expert}`);
+  if (config.symbol) startup.push(`Symbol=${config.symbol}`, `Period=${config.period}`);
+  if (config.preset) startup.push(`ExpertParameters=${config.preset}`);
+  if (startup.length) sections.push(`[StartUp]\r\n${startup.join("\r\n")}`);
+  return sections.length ? `${sections.join("\r\n\r\n")}\r\n` : "";
+}
+
+export async function writeCustomStartupFile(winePrefix: string, cacheDir: string, config: CustomStartup) {
+  const restored = await writeMt5RestoreFile(winePrefix, cacheDir);
+  if (!restored) throw new Error("MT5's saved configuration was not found. Launch it once before configuring custom startup.");
+  const base = decodeMt5Text(await readFile(restored.path));
+  const updates: Record<string, Record<string, string>> = {};
+  if (config.profile) updates.Charts = { ProfileLast: config.profile };
+  const startup: Record<string, string> = {};
+  if (config.expert) startup.Expert = config.expert;
+  if (config.symbol) { startup.Symbol = config.symbol; startup.Period = config.period; }
+  if (config.preset) startup.ExpertParameters = config.preset;
+  if (Object.keys(startup).length) updates.StartUp = startup;
+  // Deliberately do not modify Experts/AllowLiveTrading or DLL/WebRequest
+  // permissions. A startup definition is not permission to enable trading.
+  const path = resolve(cacheDir, "control-room-startup.ini");
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  await writeFile(temporary, encodeMt5Text(updateIni(removeIniSection(base, "StartUp"), updates)), { mode: 0o600, flag: "wx" });
+  await rename(temporary, path);
+  return { path, windowsPath: windowsPath(winePrefix, path) };
+}
+
 export async function writeMt5RestoreFile(winePrefix: string, cacheDir: string): Promise<{ path: string; windowsPath: string } | undefined> {
   const root = findMt5TerminalDataRoot(winePrefix);
   const common = root && findMt5CommonIni(root);
-  if (!common) return undefined;
-  // Portable-style terminals may only select their saved account when given
-  // /config. Seed the persisted settings without replaying managed EA startup,
-  // and never rewrite the terminal's own common.ini or account files.
-  const saved = decodeMt5Text(await readFile(common));
+  if (!root || !common) return undefined;
+  // Called only before starting MT5. Clear legacy native autoload as well as
+  // the launch copy: omitting a section in /config is not a deletion of native
+  // defaults. All account, profile and permission settings remain untouched.
+  const original = await readFile(common);
+  const saved = decodeMt5Text(original);
+  let skipping = false;
+  const native = (saved.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) ?? []).filter((line) => {
+    const section = sectionName(line.trimEnd());
+    if (section) skipping = section.toLowerCase() === "startup";
+    return !skipping;
+  }).join("");
+  await mkdir(cacheDir, { recursive: true });
+  if (native !== saved) {
+    const backup = resolve(cacheDir, `common-before-restore-${randomUUID()}.ini`);
+    const backupHandle = await open(backup, "wx", 0o600);
+    try { await backupHandle.writeFile(original); await backupHandle.sync(); } finally { await backupHandle.close(); }
+    const directory = await open(cacheDir, "r");
+    try { await directory.sync(); } finally { await directory.close(); }
+    const temporary = `${common}.${randomUUID()}.restore`;
+    const handle = await open(temporary, "wx", 0o600);
+    const encoded = original[0] === 0xff && original[1] === 0xfe ? encodeMt5Text(native) : Buffer.from(`${original[0] === 0xef && original[1] === 0xbb && original[2] === 0xbf ? "\ufeff" : ""}${native}`, "utf8");
+    try { await handle.writeFile(encoded); await handle.sync(); } finally { await handle.close(); }
+    await rename(temporary, common);
+    const parent = await open(dirname(common), "r");
+    try { await parent.sync(); } finally { await parent.close(); }
+  }
   let restored = removeIniSection(saved, "StartUp");
-  const account = await lastAuthorisedAccount(root!);
+  const account = await lastAuthorisedAccount(root);
   if (account) {
     // Managed common.ini can retain an earlier account after a user switches
     // accounts inside MT5. Prefer the terminal's own successful-login evidence.
@@ -268,7 +323,6 @@ export async function writeMt5RestoreFile(winePrefix: string, cacheDir: string):
     restored = updateIni(restored, { Common: { Login: account.login, Server: account.server } });
   }
   restored = restored.replace(/\r?\n/g, "\r\n");
-  await mkdir(cacheDir, { recursive: true });
   const path = resolve(cacheDir, "session-restore.ini");
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, encodeMt5Text(restored), { mode: 0o600, flag: "wx" });

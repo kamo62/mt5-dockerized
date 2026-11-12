@@ -297,7 +297,7 @@ test("restore mode resumes the saved account/profile without applying managed st
       expect(restored).toContain("ProfileLast=Saved");
       expect(restored).not.toContain("DoNotReplay");
       expect(restored.toLowerCase()).not.toContain("[startup]");
-      expect(readFileSync(join(terminal, "Config/common.ini"), "utf8")).toBe(common);
+      expect(readFileSync(join(terminal, "Config/common.ini"), "utf8")).toBe(common.slice(0, common.indexOf("[startup]")));
       expect(readFileSync(join(terminal, "Config/accounts.dat"), "utf8")).toBe("saved-encrypted-credentials");
     }
   } finally {
@@ -308,7 +308,7 @@ test("restore mode resumes the saved account/profile without applying managed st
   }
 });
 
-test("applying an import never stops a running terminal", async () => {
+test("new MQL5 additions keep MT5 running while replacements require an explicit stop", async () => {
   const root = join(process.env.TMPDIR ?? "/tmp", `mt5-import-running-${crypto.randomUUID()}`);
   const paths = createRuntimePaths(root);
   const terminal = join(paths.winePrefix, "drive_c/Program Files/MetaTrader 5");
@@ -317,10 +317,20 @@ test("applying an import never stops a running terminal", async () => {
     writeFileSync(join(terminal, "terminal64.exe"), "fixture");
     const manager = new Mt5ProcessManager({ paths, autoInstall: false, autoLaunch: false });
     const preview = await manager.createImport({ files: [{ path: "MQL5/Experts/New.ex5", size: 3 }] });
-    await manager.uploadImportChunk(preview.id, 0, 0, new TextEncoder().encode("new"));
-    const internals = manager as unknown as { isMt5Running(): Promise<boolean> };
+    const data = new TextEncoder().encode("new");
+    const digest = new Bun.CryptoHasher("sha256").update(data).digest("hex");
+    await manager.uploadImportChunk(preview.id, 0, 0, data, digest);
+    const internals = manager as unknown as { isMt5Running(): Promise<boolean>; runOneShot(): Promise<void> };
     internals.isMt5Running = async () => true;
-    await expect(manager.applyImport(preview.id, { overwrite: false, restoreAccount: false })).rejects.toThrow("Stop MT5 explicitly");
-    expect(await Bun.file(join(terminal, "MQL5/Experts/New.ex5")).exists()).toBe(false);
+    internals.runOneShot = async () => { throw new Error("Import must not issue terminal stop/start commands."); };
+    expect(preview.entries[0]?.requiresStop).toBe(false);
+    const result = await manager.applyImport(preview.id, { overwrite: false, restoreAccount: false });
+    expect(result.message).toContain("kept running");
+    expect(await Bun.file(join(terminal, "MQL5/Experts/New.ex5")).exists()).toBe(true);
+    const replacement = await manager.createImport({ files: [{ path: "MQL5/Experts/New.ex5", size: data.length }] });
+    await manager.uploadImportChunk(replacement.id, 0, 0, data, digest);
+    expect(replacement.entries[0]?.requiresStop).toBe(true);
+    await expect(manager.applyImport(replacement.id, { overwrite: true, restoreAccount: false })).rejects.toThrow("Stop MT5");
+    expect(readFileSync(join(terminal, "MQL5/Experts/New.ex5"), "utf8")).toBe("new");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

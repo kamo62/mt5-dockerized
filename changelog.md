@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.1 - 2026-11-12 (Patch, not deployed)
+
+Release impact: Patch because this corrects restore-mode migration and avoids
+unnecessary terminal stops when discovering new files.
+
+- Back up and remove obsolete managed `[StartUp]` sections from native config
+  before a restore-mode cold launch; saved chart profiles remain authoritative.
+- Permit new MQL5 additions without stopping MT5. Replacements and account/chart
+  changes retain the stopped-terminal guard. Use atomic no-clobber installs and
+  ownership-aware recovery so concurrent native file creation is not overwritten.
+- Preserve existing EA-health evidence when copying files into a running terminal.
+- Replace restart-for-discovery guidance with MT5 Navigator → Refresh, while
+  distinguishing discovery from deliberately reloading an attached EA.
+
 ## 3.0.0 - 2026-11-12 (Major)
 
 Release impact: Major because startup now defaults to restoring MT5's saved

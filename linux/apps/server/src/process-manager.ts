@@ -437,13 +437,15 @@ export class Mt5ProcessManager {
     return this.runLifecycle(async () => {
       this.importApplying = true;
       try {
-        if (this.processes.has("mt5") || await this.isMt5Running()) throw new Error("Stop MT5 explicitly before applying a data import. The importer will not stop or restart it for you.");
+        const running = this.processes.has("mt5") || await this.isMt5Running();
         const root = findMt5TerminalDataRoot(this.paths.winePrefix);
         if (!root) throw new Error("MT5 data folder was not found.");
-        const result = await this.imports.apply(id, root, options);
-        this.expertMonitor = undefined;
-        this.lastError = undefined;
-        this.log(`Data-folder import applied (${result.applied} files). Backup: ${result.backup}. MT5 remains stopped.`);
+        const result = await this.imports.apply(id, root, options, running);
+        if (!running) {
+          this.expertMonitor = undefined;
+          this.lastError = undefined;
+        }
+        this.log(`Data-folder import applied (${result.applied} files). Backup: ${result.backup}. ${running ? "MT5 kept running; use Navigator > Refresh." : "MT5 remains stopped."}`);
         return result;
       } finally { this.importApplying = false; }
     });

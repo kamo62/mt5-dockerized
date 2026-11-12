@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
@@ -116,5 +116,26 @@ test("account restore is explicit, backup is retained, and tampered staging fail
     await writeFile(join(data, "imports", next.id, "file-0"), "tampered-account");
     await expect(store.apply(next.id, root, { overwrite: true, restoreAccount: true })).rejects.toThrow("verification failed");
     expect(await readFile(join(root, "config/accounts.dat"), "utf8")).toBe("restored-account");
+  } finally { await rm(data, { recursive: true, force: true }); }
+});
+
+test("live-add rollback does not delete a file created independently by the terminal", async () => {
+  const data = await mkdtemp(join(tmpdir(), "mt5-live-import-recovery-"));
+  const root = join(data, "terminal");
+  const id = crypto.randomUUID();
+  try {
+    await mkdir(join(root, "MQL5/Files"), { recursive: true });
+    await mkdir(join(data, `imports/backup-${id}`), { recursive: true });
+    await writeFile(join(root, "MQL5/Files/foreign.txt"), "created-by-terminal");
+    await writeFile(join(root, "MQL5/Files/owned.txt"), "created-by-import");
+    const identity = await lstat(join(root, "MQL5/Files/owned.txt"), { bigint: true });
+    const pending = { format: 2, id, root, backup: `backup-${id}`, changes: [
+      { path: "MQL5/Files/foreign.txt", existed: false, createdIdentity: "other:inode" },
+      { path: "MQL5/Files/owned.txt", existed: false, createdIdentity: `${identity.dev}:${identity.ino}` },
+    ] };
+    await writeFile(join(data, "imports/pending-apply.json"), JSON.stringify(pending));
+    await new DataImportStore(data).recover();
+    expect(await readFile(join(root, "MQL5/Files/foreign.txt"), "utf8")).toBe("created-by-terminal");
+    expect(await Bun.file(join(root, "MQL5/Files/owned.txt")).exists()).toBe(false);
   } finally { await rm(data, { recursive: true, force: true }); }
 });

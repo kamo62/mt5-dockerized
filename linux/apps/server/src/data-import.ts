@@ -1,5 +1,5 @@
 import { constants, createReadStream } from "node:fs";
-import { copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import { copyFile, link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -13,8 +13,8 @@ export const ImportManifestSchema = z.object({
 
 type Entry = { path: string; size: number; sha256: string; received: number; excluded?: string };
 type Session = { id: string; root: string; destination?: string; created: number; entries: Entry[] };
-type Change = { path: string; existed: boolean; sha256?: string };
-type Journal = { id: string; root: string; backup: string; changes: Change[] };
+type Change = { path: string; existed: boolean; sha256?: string; createdIdentity?: string };
+type Journal = { format?: 2; id: string; root: string; backup: string; changes: Change[] };
 export type ImportOptions = { overwrite: boolean; restoreAccount: boolean };
 
 const roots = new Map(["MQL5", "Profiles", "Templates", "Config", "Bases", "Tester", "Logs"].map((name) => [name.toLowerCase(), name]));
@@ -213,7 +213,9 @@ export class DataImportStore {
       const stagedPath = join(this.base, id, `file-${index}`);
       const received = await exists(stagedPath) ? (await stat(stagedPath)).size : 0;
       entry.received = received;
-      entries.push({ ...entry, index, received, conflict: Boolean(target && await exists(target)), account: entry.path.startsWith("Config/") });
+      const conflict = Boolean(target && await exists(target));
+      const safeAddition = /^MQL5\//i.test(entry.path) && !/^MQL5\/Profiles(?:\/|$)/i.test(entry.path);
+      entries.push({ ...entry, index, received, conflict, account: entry.path.startsWith("Config/"), requiresStop: conflict || !safeAddition });
     }
     return { id, target: session.root, destination: session.destination, entries, chunkBytes: IMPORT_CHUNK_BYTES };
   }
@@ -247,7 +249,7 @@ export class DataImportStore {
     });
   }
 
-  async apply(id: string, root: string, options: ImportOptions) {
+  async apply(id: string, root: string, options: ImportOptions, terminalRunning = false) {
     return this.exclusive(async () => {
       if (await this.pending()) throw new Error("Recover the interrupted import first.");
       const session = await this.session(id);
@@ -255,6 +257,7 @@ export class DataImportStore {
       const preview = await this.preview(id);
       const selected = preview.entries.filter((entry) => !entry.excluded && (!entry.account || options.restoreAccount) && (!entry.conflict || options.overwrite));
       if (!selected.length) throw new Error("No files selected to apply. Existing files are preserved unless overwrite is selected.");
+      if (terminalRunning && selected.some((entry) => entry.requiresStop)) throw new Error("Stop MT5 before replacing existing files or restoring account/chart state. New MQL5 files can be copied while MT5 runs, then discovered with Navigator > Refresh.");
       if (selected.some((entry) => entry.received !== entry.size)) throw new Error("Upload is incomplete. Finish uploading before applying.");
       // Verify every staged byte before backing up or changing any destination.
       for (const entry of selected) {
@@ -266,7 +269,7 @@ export class DataImportStore {
       const backup = join(this.base, backupName);
       await mkdir(backup, { mode: 0o700 });
       await syncDirectory(this.base);
-      const journal: Journal = { id, root: session.root, backup: backupName, changes: [] };
+      const journal: Journal = { format: 2, id, root: session.root, backup: backupName, changes: [] };
       // Back up everything before changing the first destination file.
       for (const entry of selected) {
         const target = await safeTarget(session.root, entry.path);
@@ -282,13 +285,24 @@ export class DataImportStore {
       await durableJson(join(backup, "manifest.json"), journal);
       await durableJson(this.journalPath, journal);
       try {
-        for (const entry of selected) {
+        for (let index = 0; index < selected.length; index++) {
+          const entry = selected[index]!;
           const target = await safeTarget(session.root, entry.path);
           await mkdir(dirname(target), { recursive: true });
           const temporary = `${target}.mt5-import-${id}`;
           await copyFile(join(this.base, id, `file-${entry.index}`), temporary, constants.COPYFILE_EXCL);
           await syncFile(temporary);
-          await rename(temporary, target);
+          if (entry.conflict) await rename(temporary, target);
+          else {
+            // Claim ownership durably before an atomic, no-clobber install.
+            // If MT5 creates the same filename concurrently, never overwrite
+            // it and never delete its file while rolling back this import.
+            const identity = await lstat(temporary, { bigint: true });
+            journal.changes[index]!.createdIdentity = `${identity.dev}:${identity.ino}`;
+            await durableJson(this.journalPath, journal);
+            await link(temporary, target);
+            await rm(temporary);
+          }
           await syncParents(target, session.root);
         }
         await rm(this.journalPath);
@@ -301,7 +315,7 @@ export class DataImportStore {
       }
       await rm(join(this.base, id), { recursive: true, force: true });
       this.sessions.delete(id);
-      return { applied: selected.length, skipped: preview.entries.length - selected.length, backup, message: "Import applied. MT5 remains stopped; launch it when ready." };
+      return { applied: selected.length, skipped: preview.entries.length - selected.length, backup, message: terminalRunning ? "New files copied. MT5 kept running; use Navigator > Refresh to discover them." : "Import applied. MT5 remains stopped; launch it when ready." };
     });
   }
 
@@ -318,7 +332,12 @@ export class DataImportStore {
         await syncFile(temporary);
         await rename(temporary, target);
       } else {
-        await rm(target, { force: true });
+        let owned = journal.format !== 2;
+        if (journal.format === 2 && change.createdIdentity && await exists(target)) {
+          const identity = await lstat(target, { bigint: true });
+          owned = `${identity.dev}:${identity.ino}` === change.createdIdentity;
+        }
+        if (owned) await rm(target, { force: true });
       }
       await rm(`${target}.mt5-import-${journal.id}`, { force: true });
       await syncParents(target, journal.root);

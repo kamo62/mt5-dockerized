@@ -240,7 +240,10 @@ If the terminal data folder is missing, the upload button cannot resolve a
 target yet. Launch MT5 once from the control UI, let MetaTrader finish creating
 its `MQL5/Experts` folders, then retry the upload. After that first run, the
 upload button should work normally and show the detected `Target:` path.
-Restart MT5 after uploading compiled EAs if the Navigator does not refresh.
+Right-click Expert Advisors in MT5's Navigator and choose **Refresh** to discover
+new files. This is not the same as reinitialising an already attached EA. An
+in-use binary may need a deliberate detach/re-attach at a safe time; discovering
+new files does not require restarting the whole terminal.
 
 ### Data-folder imports
 
@@ -256,8 +259,10 @@ data, presets, profiles and templates. Selecting `MQL5` itself also works.
 3. Leave **Restore uploaded Config** off to keep this terminal's saved account.
    Enable it only when deliberately restoring the source terminal's configuration,
    which can replace account, server and saved-password settings.
-4. Stop MT5 explicitly before applying. Applying leaves MT5 stopped; launch it
-   yourself after checking the import result. No EA is compiled or auto-attached.
+4. New MQL5 files can be applied while MT5 keeps running. Use Navigator → Refresh
+   afterwards. Any existing-file replacement or account/profile/template restore
+   requires MT5 to be stopped explicitly; that apply leaves it stopped. Nothing
+   compiles, attaches or reinitialises an EA automatically.
 
 Uploads use 4 MiB requests so large folders do not require one oversized proxy
 request. Folder imports accept up to 10,000 files and 1 GiB of accepted contents.
@@ -289,12 +294,16 @@ to avoid unintentionally mixing existing and imported charts.
 ### Resume the last account and charts
 
 `MT5_SESSION_MODE=restore` is the default from version 3. It starts the existing
-terminal without rewriting `common.ini`, generating presets or replaying the
+terminal without overriding account/profile settings, generating presets or replaying the
 Compose `[StartUp]` block. MT5 restores its own saved account and chart profile.
 For portable-style installs that require `/config` to select the saved login,
 the launcher uses a private UTF-16 copy of the persisted settings under
 `/data/cache/session-restore.ini`, with every `[StartUp]` section removed. The
-terminal's own configuration and account files are not rewritten by the launcher.
+legacy `[StartUp]` directives are also removed from native `common.ini` before a
+cold launch, after an exact private backup under `/data/cache/common-before-restore-*.ini`.
+Account settings, trading permissions, chart files and EA inputs are otherwise
+left alone. Removing an autoload directive does not remove a chart that was
+already saved in the active profile.
 If managed settings name an older account, recent successful authorisation entries
 in MT5's own journal select the last used login/server. Explicit old passwords are
 not transferred; authentication still depends on MT5's saved credentials.
