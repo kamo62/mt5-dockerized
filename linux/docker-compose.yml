@@ -26,6 +26,9 @@ services:
       DESKTOP_WIDTH: "1920"
       DESKTOP_HEIGHT: "1080"
       MT5_DATA_DIR: "/data"
+      # Resume MT5's persisted account/charts. Opt into managed only when Compose
+      # should deliberately reapply MT5_STARTUP_* on every launch.
+      MT5_SESSION_MODE: "${MT5_SESSION_MODE:-restore}"
       PUBLIC_NOVNC_URL: "${PUBLIC_NOVNC_URL:-}"
       WEBSOCKIFY_HEARTBEAT_SECONDS: "30"
       ENABLE_AUDIO: "${ENABLE_AUDIO:-false}"

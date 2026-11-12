@@ -1,5 +1,6 @@
 import { statSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { dirname, resolve, sep } from "node:path";
 import { findMt5CommonIni, findMt5TerminalDataRoot } from "./paths";
 
@@ -164,7 +165,7 @@ function removeIniSection(base: string, sectionToRemove: string): string {
   for (const line of lines) {
     const nextSection = sectionName(line);
     if (nextSection) {
-      skipping = nextSection === sectionToRemove;
+      skipping = nextSection.toLowerCase() === sectionToRemove.toLowerCase();
       if (!skipping) {
         output.push(line);
       }
@@ -242,6 +243,64 @@ function windowsPath(winePrefix: string, path: string): string {
     return `C:\\${path.slice(driveRoot.length).replace(/\//g, "\\")}`;
   }
   return `Z:${path.replace(/\//g, "\\")}`;
+}
+
+export async function writeMt5RestoreFile(winePrefix: string, cacheDir: string): Promise<{ path: string; windowsPath: string } | undefined> {
+  const root = findMt5TerminalDataRoot(winePrefix);
+  const common = root && findMt5CommonIni(root);
+  if (!common) return undefined;
+  // Portable-style terminals may only select their saved account when given
+  // /config. Seed the persisted settings without replaying managed EA startup,
+  // and never rewrite the terminal's own common.ini or account files.
+  const saved = decodeMt5Text(await readFile(common));
+  let restored = removeIniSection(saved, "StartUp");
+  const account = await lastAuthorisedAccount(root!);
+  if (account) {
+    // Managed common.ini can retain an earlier account after a user switches
+    // accounts inside MT5. Prefer the terminal's own successful-login evidence.
+    // Never carry an explicit old password over to a different account.
+    let common = false;
+    restored = restored.split(/\r?\n/).filter((line) => {
+      const section = sectionName(line);
+      if (section) common = section.toLowerCase() === "common";
+      return !(common && ["password", "certpassword"].includes(lineKey(line)?.toLowerCase() ?? ""));
+    }).join("\n");
+    restored = updateIni(restored, { Common: { Login: account.login, Server: account.server } });
+  }
+  restored = restored.replace(/\r?\n/g, "\r\n");
+  await mkdir(cacheDir, { recursive: true });
+  const path = resolve(cacheDir, "session-restore.ini");
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  await writeFile(temporary, encodeMt5Text(restored), { mode: 0o600, flag: "wx" });
+  await rename(temporary, path);
+  return { path, windowsPath: windowsPath(winePrefix, path) };
+}
+
+async function lastAuthorisedAccount(root: string): Promise<{ login: string; server: string } | undefined> {
+  let account: { login: string; server: string } | undefined;
+  for (const directory of ["Logs", "logs"]) {
+    let files: string[];
+    try { files = (await readdir(`${root}/${directory}`)).filter((name) => /^\d{8}\.log$/i.test(name)).sort().slice(-2); } catch { continue; }
+    for (const name of files) {
+      const handle = await open(`${root}/${directory}/${name}`, "r");
+      try {
+        const info = await handle.stat();
+        const header = Buffer.alloc(2);
+        await handle.read(header, 0, 2, 0);
+        const utf16 = header[0] === 0xff && header[1] === 0xfe;
+        let offset = Math.max(0, info.size - 262144);
+        if (utf16) offset -= offset % 2;
+        const buffer = Buffer.alloc(info.size - offset);
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
+        for (const line of buffer.subarray(0, bytesRead).toString(utf16 ? "utf16le" : "utf8").split(/\r?\n/)) {
+          const match = line.match(/\tNetwork\t['"]?(\d+)['"]?:\s*authorized on\s+(.+?)(?:\s+through\b.*)?$/i);
+          if (match) account = { login: match[1]!, server: match[2]!.trim() };
+        }
+      } finally { await handle.close(); }
+    }
+    break;
+  }
+  return account;
 }
 
 export async function writeMt5StartupFiles(

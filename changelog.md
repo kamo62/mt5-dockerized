@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.0.0 - 2026-11-12 (Major)
+
+Release impact: Major because startup now defaults to restoring MT5's saved
+session instead of replaying Compose-managed startup settings. Set
+`MT5_SESSION_MODE=managed` explicitly to retain the previous autoload behaviour.
+
+- Add data-folder/ZIP imports with relative paths, staged chunk uploads, progress,
+  conflict preview, opt-in account/configuration restore, backups and recovery.
+- Adopt the selected Control Room UI: a compact command bar, navigation rail,
+  contextual drawers, persistent desktop, accessible confirmations and collapsed
+  runtime activity. Separate terminal, journal and heartbeat evidence.
+- Add confined MT5 data-folder browsing, editable destination paths and staged
+  file/folder drop or browser file-paste transfers with preserved folder names.
+- Add a manual bounded X11/Wine text clipboard bridge with xclip in the runtime
+  image and device-clipboard permission/insecure-context fallbacks.
+- Preserve existing account configuration by default and resume the saved
+  terminal account/profile without rewriting common.ini or generated presets.
+- Seed saved-login settings for portable-style restore launches using a private
+  configuration copy with EA startup directives removed.
+- End the Wine session on shutdown and wait for the terminal before signalling
+  its launcher, allowing normal account and chart-state flushing.
+- Distinguish an EA removal from initialisation failure; acknowledge deliberate
+  removals without clearing failures on other chart instances.
+- Avoid the incorrect initial localhost desktop navigation; pause hidden-tab
+  polling, prevent overlapping polls and reuse unchanged status/log data.
+- Retain the same persisted Wine prefix for credentials. Migrated credentials
+  from another machine and unsaved state after power loss are not guaranteed.
+
 ## 2.0.0 - 2026-11-09 (Major)
 
 Release impact: Major because every state-changing API request now requires

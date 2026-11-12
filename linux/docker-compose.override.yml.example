@@ -31,6 +31,7 @@ services:
       #    commented out; those variables generate and overwrite a preset.
       # ===================================================================
       # MT5_STARTUP_CONFIG: "true"
+      # MT5_SESSION_MODE: "managed"
       # MT5_STARTUP_EXPERT: "TelegramTC_EA_v1.60"
       # MT5_STARTUP_SYMBOL: "XAUUSDb"
       # MT5_STARTUP_PERIOD: "M5"

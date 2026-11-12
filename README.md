@@ -1,6 +1,6 @@
 # MT5 Dockerized
 
-Current release: `2.0.0`.
+Current release: `3.0.0`.
 
 This repo runs MetaTrader 5 from Docker. The current preferred setup is the
 Linux/Wine container in `linux/`: it auto-installs MT5 unattended on first boot,
@@ -15,10 +15,25 @@ uses multiple GB of RAM compared with the much lighter Linux/Wine setup.
 
 ![Linux MT5 control UI](docs/control-ui.png)
 
-*The Linux control UI: install / launch / restart / stop controls, runtime
+*Earlier control-UI screenshot. The current Control Room layout keeps the
+desktop dominant and moves tools into contextual drawers: install / launch / restart / stop controls, runtime
 status, EA upload, the embedded noVNC desktop (blurred here), and a live runtime
 log. Installation starts automatically by default, with a manual Install
 fallback when auto-install is disabled or fails.*
+
+## Control Room
+
+The UI uses a compact command bar and navigation rail, with separate Terminal,
+EA journal and unverified Heartbeat signals. Files, Clipboard, Import, Session
+and Paths open beside the desktop; switching tools does not reconnect noVNC or
+discard a staged import. Activity is collapsed until needed.
+
+Use **Files** to browse the active MT5 data folder, paste a destination path and
+stage files or folders there. Use **Clipboard** to send text to the X11/Wine
+clipboard and paste it in MT5, or retrieve text copied in MT5. Browser clipboard
+permissions are optional: ordinary paste in the text box and Select + Ctrl/Cmd+C
+work as fallbacks. The runtime image requires `xclip`; rebuild rather than only
+replacing the web files. File apply still requires a stopped terminal and review.
 
 ## Layout
 
@@ -114,9 +129,17 @@ EC2 it uses the instance role (no keys, IMDS hop limit >= 2); off-AWS, supply
 
 ## EA Uploads
 
+For a complete setup, use **Import MT5 data folder** in the control UI. Select
+the directory shown by MT5 → File → Open Data Folder, or a ZIP of its contents.
+Subfolders under `MQL5`, `Profiles` and `Templates` are preserved. The importer
+stages files, previews conflicts and backs up replacements. Applying requires
+MT5 to be stopped; it never stops, launches or attaches an EA automatically.
+Account configuration is preserved unless you explicitly choose to restore it.
+See [data-folder imports](linux/README.md#data-folder-imports).
+
 The web app uploads EA-related files through `POST /api/mt5/experts`. The upload
-button writes `.ex5`, `.mq5`, `.mqh`, `.set`, and `.dll` files into the active
-MT5 `MQL5/Experts` directory.
+button routes `.ex5`/`.mq5` to `MQL5/Experts`, `.mqh` to `MQL5/Include`, `.set`
+to `MQL5/Presets`, and `.dll` to `MQL5/Libraries` in the active terminal.
 
 On a fresh MT5 install, upload may fail until MT5 has been launched once. That
 first launch lets MetaTrader create the terminal folders. After that, the upload
@@ -141,6 +164,20 @@ the app is actually writing to.
 
 ## EA Autoload And common.ini
 
+Version 3 defaults to `MT5_SESSION_MODE=restore`: MT5 resumes its saved account,
+charts and profile without rewriting `common.ini` or replaying `[StartUp]`.
+Portable-style installs receive a private settings copy to select their saved
+login, with EA startup directives removed.
+Keep the same `MT5_DATA_DIR` bind mount, including the complete Wine prefix,
+and enable MT5's **Save password** when logging in. Credentials belong in the
+persisted volume, never in the image. A normal shutdown should retain the last
+saved login; a power failure can only restore what MT5 already saved to disk.
+Passwords copied from a different Windows machine may not decrypt under Wine.
+
+To retain the pre-v3 Compose-managed EA autoload behaviour, explicitly set
+`MT5_SESSION_MODE=managed` as well as `MT5_STARTUP_CONFIG=true`. Managed mode
+can replace imported chart/preset settings at launch.
+
 The shared `linux/docker-compose.yml` intentionally does not list account- or
 EA-specific `MT5_STARTUP_*` and `MT5_EA_*` variables. Keep those in a local
 `linux/docker-compose.override.yml` file so link codes, account-specific inputs,
@@ -155,6 +192,7 @@ services:
   linux-mt5:
     environment:
       MT5_STARTUP_CONFIG: "true"
+      MT5_SESSION_MODE: "managed"
       MT5_STARTUP_EXPERT: "TelegramTC_EA"
       MT5_STARTUP_SYMBOL: "XAUUSDr"
       MT5_STARTUP_PERIOD: "H1"

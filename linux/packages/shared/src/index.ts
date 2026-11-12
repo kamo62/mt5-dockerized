@@ -34,9 +34,10 @@ export const Mt5StatusSchema = z.object({
   lastError: z.string().optional(),
   expert: z.object({
     name: z.string(),
-    state: z.enum(["unverified", "loaded", "failed"]),
+    state: z.enum(["unverified", "loaded", "removed", "failed"]),
     lastError: z.string().optional(),
   }).optional(),
+  sessionMode: z.enum(["restore", "managed"]).optional(),
   logs: z.array(z.string()).default([]),
 });
 

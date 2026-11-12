@@ -24,9 +24,12 @@ import {
 } from "./command-builder";
 import { findMt5Executable, findMt5ExpertsDirectory, findMt5TerminalDataRoot, getRuntimePaths } from "./paths";
 import { ExpertLogMonitor } from "./expert-health";
+import { DataImportStore, type ImportOptions } from "./data-import";
+import { listTerminalFiles } from "./terminal-files";
 import {
   mt5StartupConfigFromEnv,
   writeMt5StartupFiles,
+  writeMt5RestoreFile,
   type Mt5StartupConfig,
 } from "./mt5-startup-config";
 
@@ -148,9 +151,16 @@ export class Mt5ProcessManager {
   private reconcileFailure = false;
   private lifecycleGeneration = 0;
   private expertMonitor?: ExpertLogMonitor;
+  private readonly imports: DataImportStore;
+  private readonly sessionMode: "restore" | "managed";
+  private importApplying = false;
 
   constructor(options: ManagerOptions = {}) {
     this.paths = options.paths ?? getRuntimePaths();
+    this.imports = new DataImportStore(this.paths.dataDir);
+    const mode = process.env.MT5_SESSION_MODE ?? "restore";
+    if (mode !== "restore" && mode !== "managed") throw new Error("MT5_SESSION_MODE must be restore or managed.");
+    this.sessionMode = mode;
     this.display = options.display ?? process.env.DISPLAY_ID ?? ":99";
     this.pulseServer = this.resolvePulseServer(options.pulseServer);
     this.autoLaunch =
@@ -218,6 +228,7 @@ export class Mt5ProcessManager {
       },
       lastError: this.lastError ?? this.expertMonitor?.status.lastError,
       expert: this.expertMonitor?.status,
+      sessionMode: this.sessionMode,
       // The control UI renders the most recent 120 lines; sending more only
       // inflates every status poll.
       logs: this.logs.slice(-120),
@@ -227,6 +238,7 @@ export class Mt5ProcessManager {
   }
 
   async install(): Promise<Mt5Status> {
+    if (this.importApplying) throw new Error("Wait for the data import to finish.");
     if (this.installPromise || this.processes.has("installer")) {
       this.log("MT5 installer is already running.");
       return this.getState();
@@ -259,11 +271,12 @@ export class Mt5ProcessManager {
     this.lifecycleGeneration += 1;
     this.mt5State = "launching";
     try {
+      if (await this.imports.pending()) throw new Error("An interrupted data import needs recovery. Use Recover import before launching MT5.");
       if (this.processes.has("mt5") || (await this.isMt5Running())) {
         // Startup config is applied through MT5's `/config:` launch flag, so a
         // terminal that is already running has not seen this boot's [StartUp].
         // Restart once to apply it, then leave repeated launches idempotent.
-        if (this.startupConfig.enabled && !this.startupApplied) {
+        if (this.sessionMode === "managed" && this.startupConfig.enabled && !this.startupApplied) {
           this.log(
             "MT5 is running without the configured startup state; restarting to apply it.",
           );
@@ -293,10 +306,12 @@ export class Mt5ProcessManager {
           `Audio driver setup skipped: ${error instanceof Error ? error.message : "unknown error"}.`,
         );
       }
-      const startupFiles = await writeMt5StartupFiles(
+      const startupFiles = this.sessionMode === "managed" ? await writeMt5StartupFiles(
         this.paths.winePrefix,
         this.startupConfig,
-      );
+      ) : undefined;
+      const restoreFile = this.sessionMode === "restore" ? await writeMt5RestoreFile(this.paths.winePrefix, this.paths.cacheDir) : undefined;
+      if (this.sessionMode === "restore") this.log("Resuming MT5's saved account and chart profile without rewriting startup configuration.");
       await this.monitorExpert(false);
       if (startupFiles?.commonIniPath) {
         this.log(`Updated MT5 common.ini: ${startupFiles.commonIniPath}.`);
@@ -306,7 +321,7 @@ export class Mt5ProcessManager {
       }
       this.startProcess(
         "mt5",
-        buildMt5LaunchCommand(executable, startupFiles?.commonIniWindowsPath),
+        buildMt5LaunchCommand(executable, startupFiles?.commonIniWindowsPath ?? restoreFile?.windowsPath),
       );
       this.startupApplied = true;
       this.mt5State = "running";
@@ -347,7 +362,6 @@ export class Mt5ProcessManager {
           );
         }
       }
-      await this.stopProcess("mt5", { intentional: true });
       if (!(await this.waitForMt5Exit(this.stopTimeoutMs))) {
         this.log(
           `MT5 did not exit within ${this.stopTimeoutMs}ms; forcing wineserver shutdown.`,
@@ -367,6 +381,9 @@ export class Mt5ProcessManager {
           throw new Error("MT5 is still running after wineserver shutdown.");
         }
       }
+      // Do not SIGTERM the tracked launcher until the terminal has flushed its
+      // account/profile state and exited (or the force-kill fallback completed).
+      await this.stopProcess("mt5", { intentional: true });
     } catch (error) {
       this.mt5State = "failed";
       this.captureError(error);
@@ -394,7 +411,68 @@ export class Mt5ProcessManager {
     return { expertsDir, files: await this.listExpertsFiles(expertsDir) };
   }
 
-  async uploadExperts(files: File[]): Promise<ExpertUploadResult> {
+  async getImportInfo() {
+    return { ...await this.imports.info(), target: findMt5TerminalDataRoot(this.paths.winePrefix), sessionMode: this.sessionMode };
+  }
+
+  async listFiles(path: string) {
+    const root = findMt5TerminalDataRoot(this.paths.winePrefix);
+    if (!root) throw new Error("MT5 data folder was not found. Launch MT5 once to create it.");
+    const driveC = `${this.paths.winePrefix}/drive_c/`;
+    const windowsRoot = root.startsWith(driveC) ? `C:\\${root.slice(driveC.length).replace(/\//g, "\\")}` : undefined;
+    return listTerminalFiles(root, path, windowsRoot);
+  }
+
+  async createImport(manifest: unknown) {
+    const root = findMt5TerminalDataRoot(this.paths.winePrefix);
+    if (!root) throw new Error("MT5 data folder was not found. Launch MT5 once to create it.");
+    return this.imports.create(root, manifest);
+  }
+
+  previewImport(id: string) { return this.imports.preview(id); }
+  uploadImportChunk(id: string, index: number, offset: number, bytes: Uint8Array, sha256?: string) { return this.imports.chunk(id, index, offset, bytes, sha256); }
+  cancelImport(id: string) { return this.imports.cancel(id); }
+
+  applyImport(id: string, options: ImportOptions) {
+    return this.runLifecycle(async () => {
+      this.importApplying = true;
+      try {
+        if (this.processes.has("mt5") || await this.isMt5Running()) throw new Error("Stop MT5 explicitly before applying a data import. The importer will not stop or restart it for you.");
+        const root = findMt5TerminalDataRoot(this.paths.winePrefix);
+        if (!root) throw new Error("MT5 data folder was not found.");
+        const result = await this.imports.apply(id, root, options);
+        this.expertMonitor = undefined;
+        this.lastError = undefined;
+        this.log(`Data-folder import applied (${result.applied} files). Backup: ${result.backup}. MT5 remains stopped.`);
+        return result;
+      } finally { this.importApplying = false; }
+    });
+  }
+
+  recoverImport() {
+    return this.runLifecycle(async () => {
+      this.importApplying = true;
+      try {
+        if (this.processes.has("mt5") || await this.isMt5Running()) throw new Error("Stop MT5 before recovering an import.");
+        const result = await this.imports.recover();
+        this.lastError = undefined;
+        this.mt5State = "idle";
+        return result;
+      } finally { this.importApplying = false; }
+    });
+  }
+
+  acknowledgeExpertRemovals(): Mt5Status {
+    this.expertMonitor?.acknowledgeRemovals();
+    return this.getState();
+  }
+
+  uploadExperts(files: File[]): Promise<ExpertUploadResult> {
+    return this.runLifecycle(() => this.uploadExpertsOnce(files));
+  }
+
+  private async uploadExpertsOnce(files: File[]): Promise<ExpertUploadResult> {
+    if (this.importApplying) throw new Error("Wait for the data import to finish before uploading EA files.");
     if (files.length === 0) {
       throw new Error("No expert advisor files were uploaded.");
     }
@@ -680,7 +758,7 @@ export class Mt5ProcessManager {
     return code === 0;
   }
 
-  private runLifecycle(operation: () => Promise<Mt5Status>): Promise<Mt5Status> {
+  private runLifecycle<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.lifecyclePromise.then(() => {
       if (this.installPromise || this.processes.has("installer")) {
         throw new Error("Wait for the MT5 installer to finish before changing terminal state.");

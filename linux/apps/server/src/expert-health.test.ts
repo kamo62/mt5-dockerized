@@ -33,7 +33,9 @@ test("native journal failures survive launcher presence and later attachment can
     expect(adopted.status.state).toBe("loaded");
     await writeFile(join(root, "logs/20261110.log"), line("expert Example (XAUUSD,M5) removed"));
     await monitor.poll();
-    expect(monitor.status.state).toBe("failed");
+    expect(monitor.status.state).toBe("removed");
+    monitor.acknowledgeRemovals();
+    expect(monitor.status.state).toBe("unverified");
     const emptyFile = join(root, "logs/20261111.log");
     await writeFile(emptyFile, "");
     const emptyMonitor = await ExpertLogMonitor.create(root, "Example");
@@ -61,6 +63,8 @@ test("another chart's successful attachment cannot clear a failed EA instance", 
     await monitor.poll();
     expect(monitor.status.state).toBe("failed");
     expect(monitor.status.lastError).toContain("XAUUSD,M5");
+    monitor.acknowledgeRemovals();
+    expect(monitor.status.state).toBe("failed");
     await appendFile(file, line("expert Example (XAUUSD,H1) loaded successfully"));
     await monitor.poll();
     expect(monitor.status.state).toBe("failed");

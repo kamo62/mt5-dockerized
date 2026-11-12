@@ -57,6 +57,7 @@ RUN dpkg --add-architecture i386 \
     winehq-stable \
     winbind \
     x11vnc \
+    xclip \
     xdg-utils \
     xvfb \
   && rm -rf /var/lib/apt/lists/*

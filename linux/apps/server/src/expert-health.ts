@@ -8,7 +8,7 @@ type Cursor = { offset: number; inode: number; pending: string; utf16: boolean }
 export class ExpertLogMonitor {
   readonly status: NonNullable<Mt5Status["expert"]>;
   private readonly cursors = new Map<string, Cursor>();
-  private readonly instances = new Map<string, string | undefined>();
+  private readonly instances = new Map<string, { state: "loaded" | "removed" | "failed"; message?: string }>();
   private readonly event: RegExp;
 
   private constructor(private readonly root: string, name: string) {
@@ -25,6 +25,20 @@ export class ExpertLogMonitor {
     }
     if (adopting) await monitor.poll();
     return monitor;
+  }
+
+  acknowledgeRemovals(): void {
+    for (const [chart, event] of this.instances) {
+      if (event.state === "removed") this.instances.delete(chart);
+    }
+    this.updateStatus();
+  }
+
+  private updateStatus(): void {
+    const events = [...this.instances.values()];
+    const failure = events.find((event) => event.state === "failed") ?? events.find((event) => event.state === "removed");
+    this.status.state = failure?.state ?? (events.length ? "loaded" : "unverified");
+    this.status.lastError = failure?.message;
   }
 
   private async files(): Promise<string[]> {
@@ -77,14 +91,18 @@ export class ExpertLogMonitor {
           const event = message && this.event.exec(message);
           if (!message || !event) continue;
           const instance = event[1]?.replace(/\s/g, "").toUpperCase() ?? "unknown";
-          if (/\bfailed\b|\bremoved\b/i.test(message)) {
-            this.instances.set(instance, `Configured EA failure: ${message}`);
+          if (/\bfailed\b/i.test(message)) {
+            this.instances.set(instance, { state: "failed", message: `Configured EA failure: ${message}` });
+          } else if (/\bremoved\b/i.test(message)) {
+            // Removal can be deliberate. Retain a preceding initialisation
+            // failure, but do not describe every detach as a software failure.
+            if (this.instances.get(instance)?.state !== "failed") {
+              this.instances.set(instance, { state: "removed", message: `Configured EA detached: ${message}` });
+            }
           } else if (/\bloaded successfully\b/i.test(message)) {
-            this.instances.set(instance, undefined);
+            this.instances.set(instance, { state: "loaded" });
           }
-          const failure = [...this.instances.values()].find((error) => error !== undefined);
-          this.status.state = failure ? "failed" : this.instances.size ? "loaded" : "unverified";
-          this.status.lastError = failure;
+          this.updateStatus();
         }
       } finally {
         await handle.close();

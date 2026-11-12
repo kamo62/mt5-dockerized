@@ -3,9 +3,13 @@ import { resolve, sep } from "node:path";
 import { Mt5ProcessManager } from "./process-manager";
 import { resolveRuntimeConfig } from "./runtime-config";
 import { cacheControlFor, isCompressibleAsset } from "./static-assets";
+import { z } from "zod";
+import { IMPORT_CHUNK_BYTES } from "./data-import";
+import { DesktopClipboard, clipboardWriteText } from "./desktop-clipboard";
 
 const port = Number(process.env.PORT ?? 3000);
 const manager = new Mt5ProcessManager();
+const clipboard = new DesktopClipboard();
 const webDistDir =
   process.env.WEB_DIST_DIR ?? new URL("../../web/dist", import.meta.url).pathname;
 const webDistRoot = resolve(webDistDir);
@@ -143,6 +147,8 @@ async function expertUploadFiles(request: Request): Promise<File[]> {
 
 const server = Bun.serve({
   port,
+  // Folder imports are streamed in small requests, including through proxies.
+  maxRequestBodySize: 12 * 1024 * 1024,
   async fetch(request) {
     const url = new URL(request.url);
 
@@ -167,7 +173,7 @@ const server = Bun.serve({
 
       if (url.pathname === "/api/health" && request.method === "GET") {
         const status = manager.getState();
-        const ok = status.mt5 !== "failed" && status.expert?.state !== "failed";
+        const ok = status.mt5 !== "failed" && !["failed", "removed"].includes(status.expert?.state ?? "");
         return jsonResponse(
           { ok, mt5: status.mt5, expert: status.expert, lastError: status.lastError },
           ok ? 200 : 503,
@@ -193,8 +199,61 @@ const server = Bun.serve({
         return jsonResponse(await manager.getExpertsInfo());
       }
 
+      if (url.pathname === "/api/mt5/files" && request.method === "GET") {
+        if (request.headers.get(ACTION_HEADER) !== "1") return jsonResponse({ error: `Missing ${ACTION_HEADER}: 1 header.` }, 403);
+        const path = url.searchParams.get("path") ?? "";
+        if (path.length > 2048) return jsonResponse({ error: "Destination path is too long." }, 400);
+        return jsonResponse(await manager.listFiles(path));
+      }
+
+      if (url.pathname === "/api/desktop/clipboard" && request.method === "GET") {
+        if (request.headers.get(ACTION_HEADER) !== "1") return jsonResponse({ error: `Missing ${ACTION_HEADER}: 1 header.` }, 403);
+        return jsonResponse(clipboard.info());
+      }
+      if (url.pathname === "/api/desktop/clipboard/read" && request.method === "POST") {
+        return jsonResponse({ text: await clipboard.read() });
+      }
+      if (url.pathname === "/api/desktop/clipboard/write" && request.method === "POST") {
+        const text = await clipboardWriteText(request);
+        await clipboard.write(text);
+        return jsonResponse({ ok: true });
+      }
+
       if (url.pathname === "/api/mt5/experts" && request.method === "POST") {
         return jsonResponse(await manager.uploadExperts(await expertUploadFiles(request)));
+      }
+
+      if (url.pathname === "/api/mt5/expert/acknowledge-removals" && request.method === "POST") {
+        return jsonResponse(manager.acknowledgeExpertRemovals());
+      }
+
+      if (url.pathname === "/api/mt5/imports" && request.method === "GET") {
+        return jsonResponse(await manager.getImportInfo());
+      }
+      if (url.pathname === "/api/mt5/imports" && request.method === "POST") {
+        return jsonResponse(await manager.createImport(await request.json()));
+      }
+      if (url.pathname === "/api/mt5/imports/recover" && request.method === "POST") {
+        return jsonResponse(await manager.recoverImport());
+      }
+      const importing = url.pathname.match(/^\/api\/mt5\/imports\/([\da-f-]{36})(?:\/(chunk|apply|cancel))?$/);
+      if (importing) {
+        const id = importing[1]!;
+        const action = importing[2];
+        if (!action && request.method === "GET") return jsonResponse(await manager.previewImport(id));
+        if (action === "cancel" && request.method === "POST") return jsonResponse(await manager.cancelImport(id));
+        if (action === "apply" && request.method === "POST") {
+          const options = z.object({ overwrite: z.boolean(), restoreAccount: z.boolean() }).strict().parse(await request.json());
+          return jsonResponse(await manager.applyImport(id, options));
+        }
+        if (action === "chunk" && request.method === "POST") {
+          if (Number(request.headers.get("content-length")) > IMPORT_CHUNK_BYTES) return jsonResponse({ error: "Import chunk is too large." }, 413);
+          const index = Number(url.searchParams.get("index") ?? "NaN");
+          const offset = Number(url.searchParams.get("offset") ?? "NaN");
+          if (!Number.isSafeInteger(index) || index < 0) return jsonResponse({ error: "Invalid file index." }, 400);
+          const bytes = new Uint8Array(await request.arrayBuffer());
+          return jsonResponse(await manager.uploadImportChunk(id, index, offset, bytes, request.headers.get("x-file-sha256") ?? undefined));
+        }
       }
 
       if (url.pathname === "/api/mt5/install" && request.method === "POST") {
@@ -213,6 +272,7 @@ const server = Bun.serve({
         return jsonResponse(await manager.restart());
       }
 
+      if (url.pathname.startsWith("/api/")) return jsonResponse({ error: "API route not found." }, 404);
       return staticResponse(url.pathname, request);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";

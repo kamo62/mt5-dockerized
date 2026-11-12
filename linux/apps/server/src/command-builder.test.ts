@@ -93,7 +93,7 @@ test("MT5 lifecycle commands detect a detached terminal and shut Wine down clean
     "-f",
     "[t]erminal(64)?\\.exe",
   ]);
-  expect(buildWineShutdownCommand()).toEqual(["wineboot", "--shutdown"]);
+  expect(buildWineShutdownCommand()).toEqual(["wineboot", "--end-session", "--shutdown"]);
   expect(buildWineKillCommand()).toEqual(["wineserver", "-k"]);
 });
 
