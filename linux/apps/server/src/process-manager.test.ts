@@ -276,7 +276,7 @@ test("restore mode resumes the saved account/profile without applying managed st
     mkdirSync(join(terminal, "Config"), { recursive: true });
     mkdirSync(join(terminal, "MQL5/Experts"), { recursive: true });
     writeFileSync(join(terminal, "terminal64.exe"), "fixture");
-    const common = "[Common]\r\nLogin=fixture-login\r\nServer=fixture-server\r\n[Charts]\r\nProfileLast=Saved\r\n";
+    const common = "[Common]\r\nLogin=fixture-login\r\nServer=fixture-server\r\n[Charts]\r\nProfileLast=Saved\r\n[startup]\r\nExpert=DoNotReplay\r\nSymbol=OldSymbol\r\n";
     writeFileSync(join(terminal, "Config/common.ini"), common);
     writeFileSync(join(terminal, "Config/accounts.dat"), "saved-encrypted-credentials");
     process.env.MT5_SESSION_MODE = "restore";
@@ -290,7 +290,13 @@ test("restore mode resumes the saved account/profile without applying managed st
       let command: string[] = [];
       internal.startProcess = (_name, cmd) => { command = cmd; };
       expect((await manager.launch()).sessionMode).toBe("restore");
-      expect(command.some((argument) => argument.startsWith("/config:"))).toBe(false);
+      expect(command.some((argument) => argument.startsWith("/config:"))).toBe(true);
+      const restored = readFileSync(join(paths.cacheDir, "session-restore.ini"), "utf16le");
+      expect(restored).toContain("Login=fixture-login");
+      expect(restored).toContain("Server=fixture-server");
+      expect(restored).toContain("ProfileLast=Saved");
+      expect(restored).not.toContain("DoNotReplay");
+      expect(restored.toLowerCase()).not.toContain("[startup]");
       expect(readFileSync(join(terminal, "Config/common.ini"), "utf8")).toBe(common);
       expect(readFileSync(join(terminal, "Config/accounts.dat"), "utf8")).toBe("saved-encrypted-credentials");
     }

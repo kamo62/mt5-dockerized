@@ -29,6 +29,7 @@ import { listTerminalFiles } from "./terminal-files";
 import {
   mt5StartupConfigFromEnv,
   writeMt5StartupFiles,
+  writeMt5RestoreFile,
   type Mt5StartupConfig,
 } from "./mt5-startup-config";
 
@@ -309,6 +310,7 @@ export class Mt5ProcessManager {
         this.paths.winePrefix,
         this.startupConfig,
       ) : undefined;
+      const restoreFile = this.sessionMode === "restore" ? await writeMt5RestoreFile(this.paths.winePrefix, this.paths.cacheDir) : undefined;
       if (this.sessionMode === "restore") this.log("Resuming MT5's saved account and chart profile without rewriting startup configuration.");
       await this.monitorExpert(false);
       if (startupFiles?.commonIniPath) {
@@ -319,7 +321,7 @@ export class Mt5ProcessManager {
       }
       this.startProcess(
         "mt5",
-        buildMt5LaunchCommand(executable, startupFiles?.commonIniWindowsPath),
+        buildMt5LaunchCommand(executable, startupFiles?.commonIniWindowsPath ?? restoreFile?.windowsPath),
       );
       this.startupApplied = true;
       this.mt5State = "running";

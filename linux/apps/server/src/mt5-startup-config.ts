@@ -1,5 +1,6 @@
 import { statSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { dirname, resolve, sep } from "node:path";
 import { findMt5CommonIni, findMt5TerminalDataRoot } from "./paths";
 
@@ -164,7 +165,7 @@ function removeIniSection(base: string, sectionToRemove: string): string {
   for (const line of lines) {
     const nextSection = sectionName(line);
     if (nextSection) {
-      skipping = nextSection === sectionToRemove;
+      skipping = nextSection.toLowerCase() === sectionToRemove.toLowerCase();
       if (!skipping) {
         output.push(line);
       }
@@ -242,6 +243,23 @@ function windowsPath(winePrefix: string, path: string): string {
     return `C:\\${path.slice(driveRoot.length).replace(/\//g, "\\")}`;
   }
   return `Z:${path.replace(/\//g, "\\")}`;
+}
+
+export async function writeMt5RestoreFile(winePrefix: string, cacheDir: string): Promise<{ path: string; windowsPath: string } | undefined> {
+  const root = findMt5TerminalDataRoot(winePrefix);
+  const common = root && findMt5CommonIni(root);
+  if (!common) return undefined;
+  // Portable-style terminals may only select their saved account when given
+  // /config. Seed the persisted settings without replaying managed EA startup,
+  // and never rewrite the terminal's own common.ini or account files.
+  const saved = decodeMt5Text(await readFile(common));
+  const restored = removeIniSection(saved, "StartUp").replace(/\r?\n/g, "\r\n");
+  await mkdir(cacheDir, { recursive: true });
+  const path = resolve(cacheDir, "session-restore.ini");
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  await writeFile(temporary, encodeMt5Text(restored), { mode: 0o600, flag: "wx" });
+  await rename(temporary, path);
+  return { path, windowsPath: windowsPath(winePrefix, path) };
 }
 
 export async function writeMt5StartupFiles(

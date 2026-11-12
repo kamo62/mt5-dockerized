@@ -291,6 +291,10 @@ to avoid unintentionally mixing existing and imported charts.
 `MT5_SESSION_MODE=restore` is the default from version 3. It starts the existing
 terminal without rewriting `common.ini`, generating presets or replaying the
 Compose `[StartUp]` block. MT5 restores its own saved account and chart profile.
+For portable-style installs that require `/config` to select the saved login,
+the launcher uses a private UTF-16 copy of the persisted settings under
+`/data/cache/session-restore.ini`, with every `[StartUp]` section removed. The
+terminal's own configuration and account files are not rewritten by the launcher.
 The full Wine prefix, registry, terminal data and HOME persist under the existing
 `MT5_DATA_DIR:/data` mount. Use the same host directory on container recreation;
 a Docker image alone does not contain your runtime account state. Enable

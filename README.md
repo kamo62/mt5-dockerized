@@ -166,6 +166,8 @@ the app is actually writing to.
 
 Version 3 defaults to `MT5_SESSION_MODE=restore`: MT5 resumes its saved account,
 charts and profile without rewriting `common.ini` or replaying `[StartUp]`.
+Portable-style installs receive a private settings copy to select their saved
+login, with EA startup directives removed.
 Keep the same `MT5_DATA_DIR` bind mount, including the complete Wine prefix,
 and enable MT5's **Save password** when logging in. Credentials belong in the
 persisted volume, never in the image. A normal shutdown should retain the last

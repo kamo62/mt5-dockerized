@@ -17,6 +17,8 @@ session instead of replaying Compose-managed startup settings. Set
   image and device-clipboard permission/insecure-context fallbacks.
 - Preserve existing account configuration by default and resume the saved
   terminal account/profile without rewriting common.ini or generated presets.
+- Seed saved-login settings for portable-style restore launches using a private
+  configuration copy with EA startup directives removed.
 - End the Wine session on shutdown and wait for the terminal before signalling
   its launcher, allowing normal account and chart-state flushing.
 - Distinguish an EA removal from initialisation failure; acknowledge deliberate
