@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Linux MT5 · Workspace concept</title>
+  <style>
+    :root {
+      --ink: var(--foreground, CanvasText);
+      --paper: var(--background, Canvas);
+      --surface: var(--card, Canvas);
+      --line: var(--border, color-mix(in srgb, CanvasText 18%, Canvas));
+      --blue: var(--info, var(--primary, Highlight));
+      --quiet: color-mix(in srgb, var(--ink) 70%, var(--paper));
+      --soft: color-mix(in srgb, var(--secondary, Canvas) 65%, var(--paper));
+      --curve: var(--radius, 10px);
+    }
+    * { box-sizing: border-box; }
+    html, body, .app { background: transparent; margin: 0; padding: 0; border: 0; border-radius: 0; }
+    body { color: var(--ink); font: 15px/1.5 var(--font-sans, ui-sans-serif, system-ui, sans-serif); }
+    button, input, select { font: inherit; }
+    button, summary, select { cursor: pointer; }
+    button { color: inherit; }
+    button:disabled { opacity: .48; cursor: not-allowed; }
+    button, input, summary, select { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 3px solid var(--primary, Highlight); outline-offset: 3px; }
+    h1:focus, h2:focus { outline: none; }
+    [hidden] { display: none !important; }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 25px; line-height: 1.25; letter-spacing: -.7px; font-weight: 650; }
+    h2 { font-size: 17px; font-weight: 650; letter-spacing: -.2px; }
+    h3 { font-size: 15px; font-weight: 650; }
+    p + p { margin-top: 10px; }
+    .muted, .sub { color: var(--quiet); }
+    .sub { margin-top: 5px; }
+    .small { font-size: 13px; }
+    .mono, code { font: 12px/1.6 var(--font-mono, ui-monospace, SFMono-Regular, monospace); overflow-wrap: anywhere; }
+    .icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+    .product-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .brand { display: flex; gap: 10px; align-items: center; font-size: 18px; font-weight: 700; letter-spacing: -.5px; }
+    .brand-mark { width: 33px; height: 33px; border-radius: 8px; display: grid; place-items: center; color: var(--blue); background: color-mix(in srgb, var(--blue) 12%, var(--surface)); }
+    .preview-cue { font-size: 11px; color: var(--quiet); letter-spacing: .1px; }
+    .layout { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; padding-top: 24px; }
+    .navigation { display: flex; flex-direction: column; gap: 5px; align-self: start; }
+    .nav-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.3px; color: var(--quiet); padding: 7px 12px 12px; }
+    .nav-button { min-height: 44px; border: 0; background: transparent; padding: 10px 12px; text-align: left; border-radius: var(--curve); display: flex; gap: 9px; align-items: center; font-size: 14px; white-space: nowrap; }
+    .nav-button[aria-current="page"] { background: color-mix(in srgb, var(--blue) 10%, var(--surface)); color: var(--ink); font-weight: 650; box-shadow: inset 3px 0 var(--blue); }
+    .nav-button[aria-current="page"] .icon { color: var(--blue); }
+    .nav-button:hover { background: color-mix(in srgb, var(--accent, Highlight) 10%, var(--surface)); }
+    main { min-width: 0; }
+    .view-header { display: flex; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 13px; border: 1px solid var(--line); background: var(--surface); border-radius: calc(var(--curve) * .75); font-size: 13px; font-weight: 600; }
+    .button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent, Highlight) 9%, var(--surface)); border-color: color-mix(in srgb, var(--blue) 55%, var(--line)); }
+    .button.primary { border-color: color-mix(in srgb, var(--blue) 45%, var(--line)); background: color-mix(in srgb, var(--blue) 15%, var(--surface)); }
+    .button.primary .icon { color: var(--blue); }
+    .button.danger { background: color-mix(in srgb, var(--destructive, CanvasText) 9%, var(--surface)); border-color: color-mix(in srgb, var(--destructive, CanvasText) 40%, var(--line)); }
+    .button.plain { background: transparent; border-color: transparent; }
+    .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--curve); padding: 16px; }
+    .stack { display: grid; gap: 16px; }
+    .desktop-panel { padding: 0; overflow: hidden; }
+    .desktop-toolbar { padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .process { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success, Highlight); display: inline-block; flex-shrink: 0; }
+    .dot.stopped { background: var(--quiet); }
+    .desktop-top { display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: var(--soft); border-block: 1px solid var(--line); }
+    .desktop-top strong { font-size: 13px; font-weight: 600; }
+    .desktop-top .muted { font-size: 11px; margin-left: auto; }
+    .terminal-menu { display: flex; gap: 16px; padding: 8px 14px; color: var(--quiet); font-size: 12px; border-bottom: 1px solid var(--line); }
+    .terminal-content { display: grid; grid-template-columns: 145px minmax(0, 1fr); min-height: 327px; }
+    .navigator { padding: 16px 12px; border-right: 1px solid var(--line); font-size: 12px; background: color-mix(in srgb, var(--muted, Canvas) 12%, var(--surface)); }
+    .navigator h3 { font-size: 12px; margin-bottom: 20px; }
+    .tree-label { color: var(--quiet); display: flex; align-items: center; gap: 7px; margin: 15px 0 7px; }
+    .tree-label .icon { width: 14px; height: 14px; }
+    .tree-item { font-size: 11px; padding-left: 21px; overflow-wrap: anywhere; }
+    .chart-space { min-width: 0; padding: 16px; display: flex; flex-direction: column; }
+    .chart-heading { display: flex; justify-content: space-between; gap: 8px; align-items: start; }
+    .chart-heading h3 { font-size: 13px; }
+    .chart-note { font-size: 11px; color: var(--quiet); margin-top: 2px; }
+    .chart { width: 100%; height: 220px; display: block; color: var(--blue); margin-top: 14px; }
+    .chart .grid { stroke: var(--line); stroke-width: 1; }
+    .chart .area { fill: color-mix(in srgb, var(--blue) 7%, var(--surface)); }
+    .chart .trace { stroke: var(--blue); stroke-width: 2; fill: none; stroke-linejoin: round; }
+    .chart-tab-row { display: flex; gap: 4px; padding: 7px 12px; border-top: 1px solid var(--line); background: var(--soft); }
+    .chart-tab { padding: 7px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--quiet); font-size: 12px; min-height: 34px; }
+    .chart-tab[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: inset 0 -2px var(--blue); }
+    .desktop-footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; font-size: 11px; color: var(--quiet); border-top: 1px solid var(--line); }
+    .desktop-footer .button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+    .stopped-desktop { min-height: 407px; padding: 32px 20px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 12px; background: var(--soft); border-block: 1px solid var(--line); }
+    .stopped-desktop > .icon { width: 35px; height: 35px; color: var(--quiet); }
+    .stopped-desktop p { max-width: 360px; }
+    .health-strip { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 14px 16px; border-top: 1px solid var(--line); font-size: 12px; }
+    .health-item { display: flex; gap: 7px; align-items: baseline; }
+    .health-item span { color: var(--quiet); }
+    .health-item strong { font-size: 12px; font-weight: 550; }
+    .notice { display: flex; gap: 12px; align-items: flex-start; background: color-mix(in srgb, var(--blue) 5%, var(--surface)); }
+    .notice > .icon { color: var(--blue); margin-top: 3px; }
+    .notice p { font-size: 13px; }
+    .notice .sub { max-width: 70ch; }
+    details summary { color: var(--ink); font-size: 13px; min-height: 36px; padding-block: 7px; }
+    details[open] summary { margin-bottom: 7px; }
+    .onboarding { display: grid; gap: 9px; padding-left: 19px; margin: 4px 0 0; font-size: 13px; }
+    .onboarding button { padding: 0; border: none; border-bottom: 1px solid var(--blue); background: transparent; font-size: inherit; }
+    .section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.15px; color: var(--quiet); margin-bottom: 8px; }
+    .steps { display: flex; gap: 24px; border-bottom: 1px solid var(--line); padding-bottom: 16px; margin-bottom: 20px; font-size: 13px; color: var(--quiet); }
+    .step { display: flex; gap: 8px; align-items: center; }
+    .step b { display: grid; place-items: center; border: 1px solid var(--line); width: 26px; height: 26px; border-radius: 50%; font-size: 12px; font-weight: 500; }
+    .step[aria-current="step"] { color: var(--ink); font-weight: 600; }
+    .step[aria-current="step"] b { background: color-mix(in srgb, var(--blue) 12%, var(--surface)); border-color: var(--blue); }
+    .source-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 18px 0 14px; }
+    .source-choice { display: flex; align-items: flex-start; gap: 12px; text-align: left; padding: 16px; border: 1px solid var(--line); border-radius: var(--curve); background: var(--surface); }
+    .source-choice[aria-pressed="true"] { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 6%, var(--surface)); box-shadow: inset 0 0 0 1px var(--blue); }
+    .source-choice .icon { color: var(--blue); margin-top: 3px; }
+    .source-choice strong, .source-choice small { display: block; }
+    .source-choice strong { font-size: 14px; font-weight: 600; }
+    .source-choice small { margin-top: 3px; color: var(--quiet); font-size: 12px; }
+    .selection-line { padding: 12px 0 18px; font-size: 13px; }
+    .inline-note { background: var(--soft); border-left: 3px solid var(--blue); padding: 12px 14px; margin-block: 16px; font-size: 13px; }
+    .file-list { list-style: none; padding: 0; margin: 16px 0; border-block: 1px solid var(--line); }
+    .file-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 0; }
+    .file-row + .file-row { border-top: 1px solid var(--line); }
+    .file-path { min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+    .file-result { flex-shrink: 0; font-size: 11px; color: var(--quiet); text-align: right; }
+    .file-result.add { color: color-mix(in srgb, var(--success, Highlight) 65%, var(--ink)); }
+    .file-result.replace { color: color-mix(in srgb, var(--warning, CanvasText) 55%, var(--ink)); }
+    fieldset { border: 0; margin: 0; padding: 0; }
+    legend { margin-bottom: 9px; padding: 0; font-size: 14px; font-weight: 600; }
+    .option { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; font-size: 13px; cursor: pointer; }
+    .option input { margin: 4px 0 0; width: 16px; height: 16px; accent-color: var(--primary, Highlight); flex-shrink: 0; }
+    .option strong { font-weight: 600; }
+    .option small { display: block; color: var(--quiet); margin-top: 3px; font-size: 12px; }
+    .option-box { border: 1px solid var(--line); border-radius: var(--curve); padding: 6px 12px; margin-top: 12px; }
+    .import-actions { margin-top: 20px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .gate { margin-top: 16px; padding: 14px; border-radius: var(--curve); border: 1px solid color-mix(in srgb, var(--warning, CanvasText) 35%, var(--line)); background: color-mix(in srgb, var(--warning, CanvasText) 5%, var(--surface)); font-size: 13px; }
+    .gate .button { margin-top: 10px; }
+    .secondary-entry { display: flex; gap: 16px; align-items: center; justify-content: space-between; }
+    .secondary-entry p { font-size: 13px; max-width: 58ch; }
+    .path-list { margin: 12px 0 0; }
+    .path-list div { padding: 12px 0; border-top: 1px solid var(--line); }
+    .path-list dt { font-size: 12px; color: var(--quiet); margin-bottom: 3px; }
+    .path-list dd { margin: 0; }
+    .vm-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.vm-heading p{font-size:12px;color:var(--quiet);margin-top:5px}.vm-grid{display:grid;grid-template-columns:1.35fr 1fr;gap:20px}.vm-label{display:block;font-size:12px;font-weight:600;margin-bottom:8px}.vm-address{display:flex;gap:6px;min-width:0}.vm-address input{width:100%;min-width:0;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:9px;font:12px var(--font-mono,monospace)}.vm-folders{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}.vm-folders button{border:1px solid var(--line);background:var(--soft);border-radius:6px;padding:7px 9px;font-size:11px;color:var(--ink)}.vm-drop{padding:18px;border:1px dashed var(--line);border-radius:var(--curve);margin:14px 0;display:grid;gap:10px;font-size:12px;color:var(--quiet)}.vm-drop .button{justify-self:start}.vm-message{font-size:12px;color:var(--blue);line-height:1.6;margin-top:12px;overflow-wrap:anywhere}.vm-clip{border-left:1px solid var(--line);padding-left:20px}.vm-clip textarea{width:100%;min-height:110px;resize:vertical;padding:10px;border:1px solid var(--line);background:var(--soft);color:var(--ink);border-radius:7px;font:12px/1.6 var(--font-mono,monospace);margin-top:10px}.vm-clip .actions{margin-top:9px}.vm-clip .button{font-size:11px;padding:6px 9px;min-height:34px}.vm-pill{color:var(--blue);font-size:11px;font-weight:600}.vm-receipt{padding:10px;background:var(--soft);font-size:12px;margin-top:9px;border-radius:6px;overflow-wrap:anywhere}@media(max-width:620px){.vm-grid{grid-template-columns:1fr}.vm-clip{border-left:0;border-top:1px solid var(--line);padding:17px 0 0}.vm-heading{align-items:flex-start}.vm-address .button{padding-inline:10px}}
+    .activity-list { margin: 16px 0 0; padding: 0; list-style: none; }
+    .activity-list li { display: flex; gap: 12px; padding: 15px 0; border-top: 1px solid var(--line); font-size: 13px; }
+    .activity-list .icon { color: var(--blue); margin-top: 2px; }
+    .activity-list small { display: block; color: var(--quiet); margin-top: 3px; }
+    .empty-note { margin-top: 14px; font-size: 13px; color: var(--quiet); }
+    .activity-filter { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); padding: 8px; min-height: 40px; font-size: 13px; max-width: 100%; }
+    dialog { color: var(--ink); background: var(--surface); padding: 24px; border: 1px solid var(--line); border-radius: var(--curve); width: min(460px, calc(100% - 32px)); }
+    dialog::backdrop { background: color-mix(in srgb, CanvasText 30%, transparent); }
+    dialog h2 { font-size: 20px; }
+    dialog .dialog-copy { margin-top: 12px; font-size: 14px; }
+    dialog .actions { margin-top: 22px; justify-content: flex-end; }
+    .dialog-tag { font-size: 11px; letter-spacing: .5px; color: var(--quiet); margin-bottom: 8px; }
+    .dialog-files { margin-top: 14px; }
+    .toast { position: fixed; bottom: 16px; left: 16px; right: 16px; width: fit-content; max-width: calc(100% - 32px); margin-inline: auto; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: var(--curve); padding: 12px 16px; font-size: 13px; box-shadow: 0 8px 25px color-mix(in srgb, CanvasText 12%, transparent); z-index: 5; pointer-events: none; }
+    .focus-mode .navigation, .focus-mode .session-note { display: none; }
+    .focus-mode .layout { grid-template-columns: minmax(0, 1fr); }
+    .focus-mode .chart { height: 350px; }
+    .focus-mode .terminal-content { min-height: 457px; }
+    @media (max-width: 850px) {
+      .layout { grid-template-columns: minmax(0, 1fr); gap: 22px; padding-top: 14px; }
+      .navigation { flex-direction: row; gap: 6px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+      .nav-label { display: none; }
+      .nav-button { padding: 10px 14px; }
+      .nav-button[aria-current="page"] { box-shadow: inset 0 -2px var(--blue); }
+      .terminal-content { grid-template-columns: 142px minmax(0, 1fr); }
+    }
+    @media (max-width: 520px) {
+      body { font-size: 14px; }
+      .product-header { gap: 5px; padding-block: 12px; }
+      .preview-cue { flex-basis: 100%; font-size: 10px; }
+      .navigation { gap: 3px; justify-content: space-between; }
+      .nav-button { font-size: 12px; padding: 9px 8px; gap: 6px; }
+      .nav-button .icon { width: 16px; height: 16px; }
+      .view-header { align-items: flex-start; margin-bottom: 16px; gap: 12px; }
+      .view-header .button { font-size: 12px; padding: 8px 10px; flex-shrink: 0; }
+      h1 { font-size: 23px; }
+      .sub { font-size: 13px; }
+      .desktop-toolbar { padding: 12px; gap: 12px; }
+      .desktop-toolbar > .actions { width: 100%; }
+      .desktop-toolbar > .actions .button { flex: 1; }
+      .terminal-content { display: block; min-height: 295px; }
+      .navigator { display: none; }
+      .chart-space { padding: 14px 12px; }
+      .chart { height: 210px; }
+      .desktop-top .muted { font-size: 10px; }
+      .desktop-footer { align-items: flex-start; }
+      .desktop-footer > span { max-width: 145px; }
+      .health-strip { gap: 8px; flex-direction: column; padding: 12px; }
+      .source-choices { grid-template-columns: 1fr; }
+      .secondary-entry { align-items: flex-start; flex-direction: column; }
+      .steps { gap: 16px; font-size: 12px; }
+      .file-row { align-items: flex-start; }
+      .file-result { max-width: 105px; }
+      .notice { gap: 10px; }
+      .activity-heading { flex-direction: column; align-items: flex-start; }
+      .focus-mode .chart { height: 280px; }
+      .focus-mode .terminal-content { min-height: 365px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg aria-hidden="true" width="0" height="0" style="position:absolute;overflow:hidden">
+    <defs>
+      <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm0 1h18"/></symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></symbol>
+      <symbol id="i-restart" viewBox="0 0 24 24"><path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8Z"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Zm-4 9 3 3 5-6"/></symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8Zm0 0v5h5M8 13h8m-8 4h6"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    </defs>
+  </svg>
+  <div class="app" id="app">
+    <header class="product-header">
+      <div class="brand"><span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-monitor"/></svg></span>Linux MT5</div>
+      <div class="actions"><button class="button plain" data-nav="files" id="clipboard-shortcut">Clipboard</button><p class="preview-cue">Design preview · Simulated data · Not connected</p></div>
+    </header>
+    <div class="layout">
+      <nav class="navigation" aria-label="Main navigation">
+        <p class="nav-label">Workspace</p>
+        <button class="nav-button" data-nav="desktop" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-monitor"/></svg>Desktop</button>
+        <button class="nav-button" data-nav="files"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Files &amp; restore</button>
+        <button class="nav-button" data-nav="activity"><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg>Activity</button>
+      </nav>
+      <main>
+        <section id="view-desktop" class="view" aria-labelledby="desktop-title">
+          <div class="view-header">
+            <div><h1 id="desktop-title" tabindex="-1">Desktop</h1><p class="sub">Your MetaTrader workspace.</p></div>
+            <button class="button primary" data-action="quick"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Upload EA</button>
+          </div>
+          <div class="stack">
+            <section class="panel desktop-panel" aria-label="Simulated MT5 desktop">
+              <div class="desktop-toolbar">
+                <div class="process"><span class="dot" id="process-dot"></span><span>Terminal process <strong id="process-label">Running</strong></span></div>
+                <div class="actions">
+                  <button class="button" data-action="launch" id="launch-control" hidden><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>Launch</button>
+                  <button class="button" data-action="restart" id="restart-control"><svg class="icon" aria-hidden="true"><use href="#i-restart"/></svg>Restart</button>
+                  <button class="button" data-action="stop" id="stop-control"><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button>
+                </div>
+              </div>
+              <div id="running-desktop">
+                <div class="desktop-top"><svg class="icon" aria-hidden="true"><use href="#i-monitor"/></svg><strong>MetaTrader 5</strong><span>·</span><span class="muted">Illustrative desktop</span></div>
+                <div class="terminal-menu" aria-hidden="true"><span>File</span><span>View</span><span>Insert</span><span>Charts</span><span>Tools</span></div>
+                <div class="terminal-content">
+                  <aside class="navigator" aria-label="Illustrative MT5 navigator">
+                    <h3>Navigator</h3>
+                    <p class="tree-label"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Accounts</p>
+                    <p class="tree-item muted">Sign in within MT5</p>
+                    <p class="tree-label"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Expert Advisors</p>
+                    <p class="tree-item" id="navigator-ea">No sample EA uploaded</p>
+                    <p class="tree-label"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>Indicators</p>
+                    <p class="tree-item muted">Example collection</p>
+                  </aside>
+                  <div class="chart-space">
+                    <div class="chart-heading"><div><h3 id="chart-title">Chart workspace</h3><p class="chart-note" id="chart-caption">Illustration only · no market data</p></div><svg class="icon muted" aria-hidden="true"><use href="#i-activity"/></svg></div>
+                    <svg class="chart" viewBox="0 0 600 220" preserveAspectRatio="none" role="img" aria-label="Illustrative line pattern, not financial data">
+                      <g class="grid"><path d="M0 25H600M0 70H600M0 115H600M0 160H600M0 205H600M60 0V220M160 0V220M260 0V220M360 0V220M460 0V220M560 0V220"/></g>
+                      <path class="area" id="chart-area" d="M0 156 30 146 55 163 82 130 106 140 138 110 164 121 190 96 217 104 244 78 270 91 300 67 326 88 350 80 375 104 405 85 430 112 460 99 488 126 520 110 548 138 574 121 600 130V220H0Z"/>
+                      <path class="trace" id="chart-trace" d="M0 156 30 146 55 163 82 130 106 140 138 110 164 121 190 96 217 104 244 78 270 91 300 67 326 88 350 80 375 104 405 85 430 112 460 99 488 126 520 110 548 138 574 121 600 130" vector-effect="non-scaling-stroke"/>
+                    </svg>
+                  </div>
+                </div>
+                <div class="chart-tab-row" aria-label="Illustrative desktop views">
+                  <button class="chart-tab" data-chart="workspace" aria-pressed="true">Workspace</button>
+                  <button class="chart-tab" data-chart="template" aria-pressed="false">Sample template</button>
+                </div>
+              </div>
+              <div class="stopped-desktop" id="stopped-desktop" hidden>
+                <svg class="icon" aria-hidden="true"><use href="#i-monitor"/></svg><h2>Terminal stopped</h2><p class="muted small">The saved session stays in the data volume. Launch when you are ready to return.</p><button class="button primary" data-action="launch"><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>Simulate launch</button>
+              </div>
+              <div class="desktop-footer"><span>Preview canvas · no remote input</span><button class="button plain" data-action="focus" aria-pressed="false" id="focus-control"><svg class="icon" aria-hidden="true"><use href="#i-expand"/></svg><span id="focus-label">Focus desktop</span></button></div>
+              <div class="health-strip" aria-label="EA status, independent of terminal process">
+                <div class="health-item"><span>EA attachment</span><strong>Not verified</strong></div>
+                <div class="health-item"><span>Heartbeat</span><strong>Unverified</strong></div>
+              </div>
+            </section>
+            <section class="panel notice session-note">
+              <svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg>
+              <div><h3>Pick up where you left off</h3><p class="sub">Restore mode resumes MT5’s saved account, charts and profile from the same persisted Wine volume.</p>
+                <details><summary>Session care &amp; first steps</summary><p class="muted">Keep the same data volume and enable <strong>Save password</strong> in MT5. Only saved changes can be restored. Passwords copied from another machine may require a new login.</p><ol class="onboarding"><li>Sign in through the MT5 desktop.</li><li><button data-action="quick">Upload a compiled EA</button>, then attach it yourself in MT5.</li><li>Moving a setup? <button data-nav="files">Import the complete data folder.</button></li></ol></details>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-files" class="view" aria-labelledby="files-title" hidden>
+          <div class="view-header"><div><h1 id="files-title" tabindex="-1">Files &amp; restore</h1><p class="sub">Bring your setup across, at your pace.</p></div></div>
+          <div class="stack">
+            <section class="panel" aria-label="VM-style file browser and text clipboard">
+              <div class="vm-heading"><div><h2>Files, where you want them</h2><p>Browse a destination or paste its path. No VNC file juggling.</p></div><span class="vm-pill">Simulated file manager</span></div>
+              <div class="vm-grid"><div><label class="vm-label" for="vm-target">Destination inside the MT5 data folder</label><div class="vm-address"><input id="vm-target" value="MQL5/Experts" spellcheck="false" aria-describedby="vm-root"><button class="button" id="vm-go">Go</button></div><p class="small muted" id="vm-root" style="margin-top:8px">Data folder: <code>C:\Program Files\MetaTrader 5</code></p><div class="vm-folders" aria-label="Example folders"><button data-folder="MQL5/Experts">Experts</button><button data-folder="MQL5/Indicators">Indicators</button><button data-folder="MQL5/Include">Include</button><button data-folder="MQL5/Files">Files</button><button data-folder="MQL5/Presets">Presets</button><button data-folder="Profiles">Profiles</button></div><div class="vm-drop"><strong id="vm-current">MT5 / MQL5 / Experts</strong><span>Drop or choose files here in the application. Browser support for pasting whole folders varies.</span><button class="button primary" id="vm-paste">Preview file paste here</button></div><div class="vm-receipt" id="vm-receipt" hidden></div><p class="vm-message" id="vm-message" role="status">Choose a destination. This prototype reads no local files.</p></div><div class="vm-clip"><h3>Text clipboard</h3><p class="sub small">Paste text into this box, then send it to the desktop. Bring text back without fighting VNC.</p><textarea id="vm-text" aria-label="Text clipboard preview" placeholder="Paste text with Ctrl / Cmd + V…"></textarea><div class="actions"><button class="button" id="vm-send">Send to MT5 (demo)</button><button class="button" id="vm-get">Get desktop text (demo)</button><button class="button plain" id="vm-select">Select text</button></div><p class="small muted" style="margin-top:9px">Text stays in this preview. It never reads or writes your system clipboard automatically.</p></div></div>
+            </section>
+            <section class="panel" aria-labelledby="import-title">
+              <div class="steps" aria-label="Import progress"><div class="step" id="step-upload" aria-current="step"><b>1</b>Upload to staging</div><div class="step" id="step-review"><b>2</b>Review &amp; apply</div></div>
+              <div id="import-select">
+                <h2 id="import-title">Import an MT5 data folder</h2>
+                <p class="sub">In MT5, choose <strong>File → Open Data Folder</strong>. Select that folder or a ZIP of its contents, rather than the terminal installer.</p>
+                <div class="source-choices" aria-label="Choose an invented import sample">
+                  <button class="source-choice" data-source="folder" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span><strong>Use sample folder</strong><small>WorkspaceSample / 5 invented files</small></span></button>
+                  <button class="source-choice" data-source="zip" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-file"/></svg><span><strong>Use sample ZIP</strong><small>WorkspaceSample.zip / same files</small></span></button>
+                </div>
+                <p class="selection-line muted" id="source-description" role="status">Choose a sample to explore the import flow. No local files are read.</p>
+                <button class="button primary" id="stage-button" data-action="stage" disabled><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Simulate upload &amp; review</button>
+                <div class="inline-note">Uploading only stages files. Review conflicts and account settings before anything is applied. MT5 can keep running during staging.</div>
+                <details><summary>What comes across?</summary><p class="small muted">Nested MQL5 files, profiles and templates retain their paths. Logs, history and terminal executables are excluded. Profiles are merged, so existing and imported chart files may form a mixed layout.</p></details>
+              </div>
+              <div id="import-review" hidden>
+                <h2 id="review-title" tabindex="-1">Review staged files</h2><p class="sub" id="review-source">Sample staged · terminal data has not changed.</p>
+                <ul class="file-list" aria-label="Staged sample files">
+                  <li class="file-row"><span class="file-path mono">MQL5/Experts/WorkspaceDemo.ex5</span><span class="file-result add">Add</span></li>
+                  <li class="file-row"><span class="file-path mono">MQL5/Presets/WorkspaceDemo.set</span><span class="file-result" id="conflict-result">Keep existing</span></li>
+                  <li class="file-row"><span class="file-path mono">Profiles/Charts/Workspace/chart01.chr</span><span class="file-result add">Add</span></li>
+                  <li class="file-row"><span class="file-path mono">Config/accounts.dat</span><span class="file-result" id="account-result">Keep current account</span></li>
+                  <li class="file-row"><span class="file-path mono">Logs/example.log</span><span class="file-result">Excluded · log file</span></li>
+                </ul>
+                <fieldset><legend>Account settings</legend>
+                  <label class="option"><input type="radio" name="account" value="keep" checked><span><strong>Keep this terminal’s account</strong><small>Recommended. Uploaded account configuration is skipped.</small></span></label>
+                  <label class="option"><input type="radio" name="account" value="restore"><span><strong>Restore uploaded Config</strong><small>May replace account and server settings. Passwords from another machine may not decrypt.</small></span></label>
+                </fieldset>
+                <div class="option-box"><label class="option"><input type="checkbox" id="overwrite"><span><strong>Replace existing files</strong><small>Back up replacements first. Leave off to keep existing files.</small></span></label></div>
+                <p class="small muted" style="margin-top:12px">Profiles are merged, not mirrored. Check chart paths before applying.</p>
+                <details><summary>Import destination</summary><p class="small muted">Illustrative resolved terminal folder</p><p class="mono">/data/wine-prefix/.mt5/drive_c/Program Files/MetaTrader 5</p></details>
+                <div class="gate" id="stop-gate"><strong>Stop MT5 before applying</strong><p>Staging has not stopped the terminal. Stop it explicitly when you are ready.</p><button class="button" data-action="stop"><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Stop terminal…</button></div>
+                <p class="inline-note" id="ready-note" hidden>Terminal stopped in this preview. Applying will leave it stopped and will not attach an EA.</p>
+                <div class="import-actions"><button class="button primary" id="apply-button" data-action="apply" disabled>Apply 2 files…</button><button class="button plain" data-action="discard">Discard staged import</button></div>
+              </div>
+              <div id="import-complete" hidden>
+                <p class="section-label">Simulation complete</p><h2 id="complete-title" tabindex="-1">Your import has been reviewed</h2><p class="sub" id="import-receipt"></p>
+                <div class="inline-note" id="backup-receipt"></div>
+                <p class="small muted" id="complete-state">MT5 is still stopped. Launch it yourself, check the restored profile and attach any EA in the desktop.</p>
+                <div class="import-actions"><button class="button primary" data-nav="desktop"><svg class="icon" aria-hidden="true"><use href="#i-monitor"/></svg>Return to desktop</button><button class="button plain" data-action="new-import">Try another import</button></div>
+              </div>
+            </section>
+            <section class="panel secondary-entry"><div><p class="section-label">Just an Expert Advisor?</p><h2>Quick EA upload</h2><p class="sub">Add an EA, preset, header or library without importing a complete setup. Uploading does not attach or compile it.</p></div><button class="button" data-action="quick"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>Upload EA</button></section>
+          </div>
+        </section>
+
+        <section id="view-activity" class="view" aria-labelledby="activity-title" hidden>
+          <div class="view-header"><div><h1 id="activity-title" tabindex="-1">Activity</h1><p class="sub">A quiet place for runtime details.</p></div></div>
+          <div class="stack">
+            <section class="panel">
+              <div class="view-header activity-heading" style="margin-bottom:0"><div><h2>Preview actions</h2><p class="sub small">Your interactions here, not a live runtime log.</p></div><label class="small">Show <select class="activity-filter" id="activity-filter"><option value="all">All actions</option><option value="terminal">Terminal</option><option value="files">Files &amp; restore</option></select></label></div>
+              <ul class="activity-list" id="activity-list" aria-label="Simulated action history"></ul><p class="empty-note" id="activity-empty" hidden>No simulated actions in this category yet.</p>
+            </section>
+            <section class="panel"><h2>Runtime &amp; storage</h2><p class="sub small">Illustrative configuration. No environment has been inspected.</p>
+              <dl class="path-list"><div><dt>Terminal process</dt><dd id="activity-process">Running · simulated</dd></div><div><dt>EA attachment / heartbeat</dt><dd class="small">Not verified / unverified. A running process does not confirm EA activity.</dd></div><div><dt>Session on launch</dt><dd class="small">Resume saved account, charts and profile</dd></div></dl>
+              <details><summary>Technical paths</summary><dl class="path-list"><div><dt>Persisted Wine prefix</dt><dd class="mono">/data/wine-prefix/.mt5</dd></div><div><dt>Sample EA destination</dt><dd class="mono">/data/wine-prefix/.mt5/drive_c/Program Files/MetaTrader 5/MQL5/Experts</dd></div><div><dt>Import staging &amp; replacement backups</dt><dd class="mono">/data/imports</dd></div></dl></details>
+              <details><summary>About saved sessions</summary><p class="small muted">Reuse the same data volume, including the complete Wine prefix. Enable MT5’s Save password option. A normal shutdown gives MT5 an opportunity to save; unsaved changes can be lost. Cross-machine account files may require a fresh login.</p></details>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-copy">
+    <p class="dialog-tag">DESIGN PREVIEW · SIMULATED ACTION</p><h2 id="confirm-title"></h2><p class="dialog-copy" id="confirm-copy"></p><p class="inline-note" id="confirm-note"></p><div class="actions"><button class="button" id="confirm-cancel" autofocus>Cancel</button><button class="button primary" id="confirm-proceed">Confirm simulation</button></div>
+  </dialog>
+  <dialog id="quick-dialog" aria-labelledby="quick-title" aria-describedby="quick-description">
+    <p class="dialog-tag">DESIGN PREVIEW · INVENTED FILES ONLY</p><h2 id="quick-title">Quick EA upload</h2><p class="dialog-copy" id="quick-description">Choose sample files to try the upload. No file picker or real upload is used.</p>
+    <fieldset class="dialog-files"><legend>Sample files</legend><label class="option"><input type="checkbox" id="quick-expert" checked><span><strong>WorkspaceDemo.ex5</strong><small>Compiled EA → MQL5/Experts</small></span></label><label class="option"><input type="checkbox" id="quick-preset"><span><strong>WorkspaceDemo.set</strong><small>Preset → MQL5/Presets</small></span></label></fieldset>
+    <p class="inline-note">Uploading does not compile or attach an EA. Refresh MT5’s Navigator, then attach it yourself.</p><p class="small muted">Other supported routes: .mq5 → Experts, .mqh → Include, .dll → Libraries.</p>
+    <div class="actions"><button class="button" id="quick-cancel">Cancel</button><button class="button primary" id="quick-upload">Simulate upload</button></div>
+  </dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <script>
+    (() => {
+      'use strict';
+      const $ = (id) => document.getElementById(id);
+      const state = { running: true, source: null, stage: 'select', restore: false, overwrite: false, uploaded: false, focused: false, chart: 'workspace' };
+      const events = [{ category: 'preview', message: 'Design preview opened.', detail: 'No runtime connection. All files and actions are simulated.' }];
+      let confirmation = null;
+      let noticeTimer;
+      let returnFocus;
+      const paths = {
+        workspace: 'M0 156 30 146 55 163 82 130 106 140 138 110 164 121 190 96 217 104 244 78 270 91 300 67 326 88 350 80 375 104 405 85 430 112 460 99 488 126 520 110 548 138 574 121 600 130',
+        template: 'M0 115 30 115 55 91 82 91 106 132 138 132 164 110 190 110 217 73 244 73 270 99 300 99 326 147 350 147 375 119 405 119 430 78 460 78 488 103 520 103 548 137 574 137 600 115'
+      };
+      function notify(message) {
+        clearTimeout(noticeTimer);
+        $('toast').textContent = message;
+        $('toast').hidden = false;
+        noticeTimer = setTimeout(() => { $('toast').hidden = true; }, 5500);
+      }
+      function record(category, message, detail = 'Simulated action only. No real files or processes changed.') {
+        events.unshift({ category, message, detail });
+        renderActivity();
+      }
+      function renderActivity() {
+        const filter = $('activity-filter').value;
+        const matching = events.filter((event) => filter === 'all' || event.category === filter);
+        $('activity-list').replaceChildren();
+        matching.slice(0, 8).forEach((event) => {
+          const item = document.createElement('li');
+          const marker = document.createElement('span');
+          marker.className = 'dot';
+          marker.style.marginTop = '7px';
+          const copy = document.createElement('div');
+          const title = document.createElement('span');
+          const detail = document.createElement('small');
+          title.textContent = event.message;
+          detail.textContent = event.detail;
+          copy.append(title, detail);
+          item.append(marker, copy);
+          $('activity-list').append(item);
+        });
+        $('activity-empty').hidden = matching.length > 0;
+      }
+      function navigate(view) {
+        if (view !== 'desktop' && state.focused) toggleFocus();
+        document.querySelectorAll('.view').forEach((section) => { section.hidden = section.id !== 'view-' + view; });
+        document.querySelectorAll('.navigation [data-nav]').forEach((button) => {
+          if (button.dataset.nav === view) button.setAttribute('aria-current', 'page');
+          else button.removeAttribute('aria-current');
+        });
+        $(view + '-title').focus({ preventScroll: true });
+      }
+      function toggleFocus() {
+        state.focused = !state.focused;
+        $('app').classList.toggle('focus-mode', state.focused);
+        $('focus-control').setAttribute('aria-pressed', String(state.focused));
+        $('focus-label').textContent = state.focused ? 'Exit focus' : 'Focus desktop';
+      }
+      function renderRuntime() {
+        $('process-label').textContent = state.running ? 'Running' : 'Stopped';
+        $('activity-process').textContent = (state.running ? 'Running' : 'Stopped') + ' · simulated';
+        $('process-dot').classList.toggle('stopped', !state.running);
+        $('running-desktop').hidden = !state.running;
+        $('stopped-desktop').hidden = state.running;
+        $('launch-control').hidden = state.running;
+        $('stop-control').disabled = !state.running;
+        $('restart-control').disabled = !state.running;
+        $('complete-state').textContent = state.running
+          ? 'MT5 has since been launched in this preview. Check the restored profile and attach any EA yourself in the desktop.'
+          : 'MT5 is still stopped. Launch it yourself, check the restored profile and attach any EA in the desktop.';
+        renderReview();
+      }
+      function countApplied() { return 2 + Number(state.restore) + Number(state.overwrite); }
+      function renderReview() {
+        $('conflict-result').textContent = state.overwrite ? 'Replace with backup' : 'Keep existing';
+        $('conflict-result').className = 'file-result' + (state.overwrite ? ' replace' : '');
+        $('account-result').textContent = state.restore ? 'Restore with backup' : 'Keep current account';
+        $('account-result').className = 'file-result' + (state.restore ? ' replace' : '');
+        $('stop-gate').hidden = !state.running;
+        $('ready-note').hidden = state.running;
+        $('apply-button').disabled = state.running || state.stage !== 'review';
+        $('apply-button').textContent = 'Apply ' + countApplied() + ' files…';
+      }
+      function setStage(stage) {
+        state.stage = stage;
+        ['select', 'review', 'complete'].forEach((name) => { $('import-' + name).hidden = stage !== name; });
+        $('step-upload').removeAttribute('aria-current');
+        $('step-review').removeAttribute('aria-current');
+        $(stage === 'select' ? 'step-upload' : 'step-review').setAttribute('aria-current', 'step');
+        renderReview();
+      }
+      function resetImport() {
+        state.source = null;
+        state.restore = false;
+        state.overwrite = false;
+        $('overwrite').checked = false;
+        document.querySelector('input[name="account"][value="keep"]').checked = true;
+        document.querySelectorAll('[data-source]').forEach((button) => button.setAttribute('aria-pressed', 'false'));
+        $('source-description').textContent = 'Choose a sample to explore the import flow. No local files are read.';
+        $('stage-button').disabled = true;
+        setStage('select');
+        document.querySelector('[data-source="folder"]').focus({ preventScroll: true });
+      }
+      function ask(title, copy, note, label, action, dangerous = false) {
+        returnFocus = document.activeElement;
+        $('confirm-title').textContent = title;
+        $('confirm-copy').textContent = copy;
+        $('confirm-note').textContent = note;
+        $('confirm-proceed').textContent = label;
+        $('confirm-proceed').className = 'button ' + (dangerous ? 'danger' : 'primary');
+        confirmation = action;
+        $('confirm-dialog').showModal();
+        $('confirm-cancel').focus();
+      }
+      function stop() {
+        if (!state.running) return;
+        ask('Stop the terminal?', 'MT5 and its attached EAs will stop running. Check any active trading in MT5 before stopping.', 'Saved session data stays in the persisted volume. This preview changes only the simulated process state.', 'Simulate stop', () => {
+          state.running = false;
+          renderRuntime();
+          record('terminal', 'Terminal stop simulated.');
+          notify('Simulated: terminal stopped. EA heartbeat remains unverified.');
+          if (!$('view-files').hidden && state.stage === 'review') $('apply-button').focus({ preventScroll: true });
+          else $('launch-control').focus({ preventScroll: true });
+        }, true);
+      }
+      const actions = {
+        focus: toggleFocus,
+        stop,
+        launch() {
+          if (state.running) return;
+          state.running = true;
+          renderRuntime();
+          record('terminal', 'Terminal launch simulated.', 'Restore mode selected. EA attachment and heartbeat remain unverified.');
+          notify('Simulated: terminal launched in restore mode.');
+          $('stop-control').focus({ preventScroll: true });
+        },
+        restart() {
+          if (!state.running) return;
+          ask('Restart the terminal?', 'MT5 and any attached EAs will be interrupted before the terminal launches again. Check active trading first.', 'The same saved session is used on launch. EA attachment and heartbeat are still unverified.', 'Simulate restart', () => {
+            state.running = true;
+            renderRuntime();
+            record('terminal', 'Terminal restart simulated.', 'Simulated stop and launch completed. No EA activity has been verified.');
+            notify('Simulated: restart completed. No runtime was contacted.');
+          });
+        },
+        quick() { $('quick-dialog').showModal(); },
+        stage() {
+          if (!state.source || state.stage !== 'select') return;
+          $('review-source').textContent = (state.source === 'folder' ? 'WorkspaceSample folder' : 'WorkspaceSample.zip') + ' · 5 sample files staged. Terminal data has not changed.';
+          setStage('review');
+          record('files', 'Sample data folder staged for review.', 'One file conflict, one account configuration file and one excluded log. Nothing applied.');
+          $('review-title').focus({ preventScroll: true });
+          notify('Simulated upload complete. Review before applying.');
+        },
+        apply() {
+          if (state.running || state.stage !== 'review') return;
+          ask('Apply this staged import?', countApplied() + ' sample files will be applied. ' + (state.restore ? 'Uploaded account configuration will replace the current configuration.' : 'The existing account configuration will be kept.'), 'The terminal stays stopped. Replacements are backed up first. No EA is compiled or attached.', 'Simulate apply', () => {
+            if (state.running || state.stage !== 'review') return;
+            const count = countApplied();
+            $('import-receipt').textContent = count + ' sample files applied; ' + (5 - count) + ' skipped. ' + (state.restore ? 'Uploaded account configuration selected. A new login may be needed.' : 'Existing account configuration preserved.');
+            $('backup-receipt').textContent = state.restore || state.overwrite
+              ? 'Simulated replacement backup: /data/imports/backup-preview. No real backup or file changes were made.'
+              : 'No existing files replaced. No backup needed in this simulation.';
+            state.uploaded = true;
+            $('navigator-ea').textContent = 'WorkspaceDemo.ex5';
+            setStage('complete');
+            record('files', 'Data-folder apply simulated: ' + count + ' files.', (state.restore ? 'Account configuration restore selected.' : 'Existing account kept.') + ' Terminal left stopped; no EA attached.');
+            $('complete-title').focus({ preventScroll: true });
+            notify('Simulation complete. MT5 is still stopped.');
+          });
+        },
+        discard() {
+          ask('Discard the staged import?', 'The staged sample and your review choices will be removed. The terminal’s files and account will be kept.', 'This does not launch or stop the terminal.', 'Discard sample', () => {
+            resetImport();
+            record('files', 'Staged sample discarded.');
+            notify('Staged sample discarded. Terminal state kept.');
+          });
+        },
+        'new-import': resetImport
+      };
+      document.addEventListener('click', (event) => {
+        const button = event.target.closest('button');
+        if (!button || button.disabled) return;
+        if (button.dataset.nav) navigate(button.dataset.nav);
+        if (button.dataset.action) actions[button.dataset.action]?.();
+        if (button.dataset.source) {
+          state.source = button.dataset.source;
+          document.querySelectorAll('[data-source]').forEach((choice) => choice.setAttribute('aria-pressed', String(choice === button)));
+          $('source-description').textContent = (state.source === 'folder' ? 'WorkspaceSample folder' : 'WorkspaceSample.zip') + ' selected · 5 invented files · ready to stage.';
+          $('stage-button').disabled = false;
+        }
+        if (button.dataset.chart) {
+          state.chart = button.dataset.chart;
+          document.querySelectorAll('[data-chart]').forEach((tab) => tab.setAttribute('aria-pressed', String(tab === button)));
+          $('chart-title').textContent = state.chart === 'workspace' ? 'Chart workspace' : 'Sample template';
+          $('chart-trace').setAttribute('d', paths[state.chart]);
+          $('chart-area').setAttribute('d', paths[state.chart] + 'V220H0Z');
+        }
+      });
+      document.querySelectorAll('input[name="account"]').forEach((radio) => radio.addEventListener('change', () => {
+        state.restore = radio.value === 'restore';
+        renderReview();
+      }));
+      $('overwrite').addEventListener('change', (event) => { state.overwrite = event.target.checked; renderReview(); });
+      $('activity-filter').addEventListener('change', renderActivity);
+      $('confirm-cancel').addEventListener('click', () => { confirmation = null; $('confirm-dialog').close(); });
+      $('confirm-dialog').addEventListener('cancel', () => { confirmation = null; });
+      $('confirm-proceed').addEventListener('click', () => {
+        const action = confirmation;
+        confirmation = null;
+        $('confirm-dialog').close();
+        action?.();
+      });
+      $('confirm-dialog').addEventListener('close', () => {
+        if (document.activeElement === document.body && returnFocus?.isConnected && !returnFocus.disabled && returnFocus.getClientRects().length) returnFocus.focus();
+      });
+      $('quick-cancel').addEventListener('click', () => $('quick-dialog').close());
+      const updateQuick = () => { $('quick-upload').disabled = !$('quick-expert').checked && !$('quick-preset').checked; };
+      $('quick-expert').addEventListener('change', updateQuick);
+      $('quick-preset').addEventListener('change', updateQuick);
+      $('quick-upload').addEventListener('click', () => {
+        const files = [];
+        if ($('quick-expert').checked) { files.push('WorkspaceDemo.ex5 → MQL5/Experts'); state.uploaded = true; $('navigator-ea').textContent = 'WorkspaceDemo.ex5'; }
+        if ($('quick-preset').checked) files.push('WorkspaceDemo.set → MQL5/Presets');
+        if (!files.length) return;
+        $('quick-dialog').close();
+        record('files', 'Quick EA upload simulated.', files.join('; ') + '. No compilation or EA attachment.');
+        notify('Simulated: ' + files.length + ' sample file' + (files.length === 1 ? '' : 's') + ' uploaded. EA not attached.');
+      });
+      renderActivity();
+      renderRuntime();
+    })();
+  </script>
+  <script>
+    (()=>{
+      const byId=id=>document.getElementById(id);let destination='MQL5/Experts';
+      const go=()=>{let value=byId('vm-target').value.trim().replace(/\\/g,'/');const prefix='C:/Program Files/MetaTrader 5/';if(value.toLowerCase().startsWith(prefix.toLowerCase()))value=value.slice(prefix.length);if(!value||value.startsWith('/')||value.includes(':')||value.split('/').includes('..')){byId('vm-message').textContent='Use a destination inside the example MT5 data folder.';return false}destination=value;byId('vm-target').value=value;byId('vm-current').textContent='MT5 / '+value.split('/').join(' / ');byId('vm-message').textContent='Destination selected. Pasting will stage files here for review.';return true};
+      byId('vm-go').onclick=go;byId('vm-target').onkeydown=event=>{if(event.key==='Enter')go()};document.querySelectorAll('[data-folder]').forEach(button=>button.onclick=()=>{byId('vm-target').value=button.dataset.folder;go()});
+      byId('vm-paste').onclick=()=>{if(!go())return;byId('vm-receipt').hidden=false;byId('vm-receipt').textContent='Sample staged → '+destination+'/ExampleEA/ExampleEA.ex5 and '+destination+'/ExampleEA/resources/settings.json';byId('vm-message').textContent='Preview only. In the application, conflicts are reviewed and MT5 must be stopped before applying.'};
+      byId('vm-send').onclick=()=>{byId('vm-message').textContent=byId('vm-text').value?'Text handoff simulated. Nothing was sent to MT5.':'Paste or type some text first.'};byId('vm-get').onclick=()=>{byId('vm-text').value='Example text from the simulated desktop. This is not your real clipboard.';byId('vm-message').textContent='Sample desktop text loaded. Select it to try normal browser copying.'};byId('vm-select').onclick=()=>{byId('vm-text').focus();byId('vm-text').select()};byId('clipboard-shortcut').addEventListener('click',()=>queueMicrotask(()=>byId('vm-text').focus()));
+    })();
+  </script>
+</body>
+</html>

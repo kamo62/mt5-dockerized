@@ -19,7 +19,7 @@ export function buildWineBootCommand(): string[] {
 }
 
 export function buildWineShutdownCommand(): string[] {
-  return ["wineboot", "--shutdown"];
+  return ["wineboot", "--end-session", "--shutdown"];
 }
 
 // Last-resort stop when Wine has not closed the detached terminal within the

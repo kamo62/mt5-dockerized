@@ -136,7 +136,7 @@ shutdown() {
   [ -n "${BUN_PID:-}" ] && kill "$BUN_PID" >/dev/null 2>&1 || true
 
   if pgrep -f '[t]erminal(64)?\.exe' >/dev/null 2>&1; then
-    timeout 20s wineboot --shutdown || echo "MT5 did not finish a clean Wine shutdown." >&2
+    timeout 20s wineboot --end-session --shutdown || echo "MT5 did not finish a clean Wine shutdown." >&2
 
     # wineboot can return before the detached terminal has flushed its chart
     # profile and exited. Give it a bounded grace period, then force the prefix

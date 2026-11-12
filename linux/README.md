@@ -162,6 +162,46 @@ configured via `MT5_DATA_DIR`.
 
 ## Expert Advisors
 
+### Control Room files and clipboard
+
+The desktop stays mounted while you switch contextual drawers. The command bar
+shows terminal process state, configured-EA journal evidence and an explicitly
+unverified heartbeat separately. Stop and Restart ask for confirmation; reloading
+the desktop view does not restart MT5. Focus hides tools without disconnecting
+the desktop. Scaling and remote keyboard controls remain inside noVNC, or use
+**New tab** for its full interface. Activity is collapsed by default.
+
+**Files** browses only the active MT5 data folder. Paste a relative destination
+such as `MQL5/Experts/MyEA`, or that folder's absolute Linux/Windows path. Folder
+navigation and Go do not create or change files. New destinations are created
+only during apply. Links cannot be traversed. History, logs and tester/cache
+locations are browse-only; this is not a host filesystem or shell console.
+
+Choose files/folders, drop them or paste file data when the browser exposes it.
+Selection alone does not upload; **Stage to destination & review**, an explicit
+drop or file paste stages the transfer and opens Import. The pasted folder name
+is retained below the chosen destination. If the browser only provides path text,
+use Choose folder instead: a path pasted from your computer cannot grant the
+browser filesystem access. Config destinations still require explicit account
+restore; account protection, checksum, conflict, backup and stopped-terminal
+checks are unchanged. Existing staged imports must be reviewed or cancelled
+before starting another transfer.
+
+**Clipboard** is a manual text bridge, not a file clipboard. Send updates the
+desktop's X11 CLIPBOARD selection (Wine maps it to Windows); click in MT5 and use
+Ctrl+V or Paste. Sending never injects keystrokes or submits a form. Get reads text
+you copied in the desktop into the browser text box. Your device clipboard is
+accessed only after an explicit browser-clipboard button click. On insecure LAN
+URLs or denied permissions, paste directly into the box or use Select text and
+Ctrl/Cmd+C. Transfers are limited to 64 KiB of UTF-8 text and are not logged.
+Do not copy broker passwords into the control surface unnecessarily.
+
+The runtime image installs `xclip`; a web-only update of an older image reports
+the missing utility instead of pretending the bridge worked. Utility detection
+does not prove native X11/Wine access; the first successful send/get does. The
+service still needs a trusted network boundary/authenticated proxy as documented
+under Security Notes.
+
 Expert Advisors can run under Wine when they are custom/non-DRM builds and do
 not depend on unsupported Windows APIs or CPU features unavailable on the host.
 Commercial MQL5 Market EAs, EAs with native DLL dependencies, and binaries
@@ -202,6 +242,66 @@ its `MQL5/Experts` folders, then retry the upload. After that first run, the
 upload button should work normally and show the detected `Target:` path.
 Restart MT5 after uploading compiled EAs if the Navigator does not refresh.
 
+### Data-folder imports
+
+Use **Import MT5 data folder** for the folder opened by **File → Open Data
+Folder**, not the installation directory containing `terminal64.exe`. A folder
+picker or ZIP preserves nested EAs, indicators, libraries, include files, custom
+data, presets, profiles and templates. Selecting `MQL5` itself also works.
+
+1. Select the data folder or ZIP. Uploading is staging only and is allowed while
+   MT5 runs. The preview shows the resolved destination, conflicts and exclusions.
+2. Leave **Overwrite existing files** off to keep existing files. Enable it to
+   replace conflicts, with a backup made first.
+3. Leave **Restore uploaded Config** off to keep this terminal's saved account.
+   Enable it only when deliberately restoring the source terminal's configuration,
+   which can replace account, server and saved-password settings.
+4. Stop MT5 explicitly before applying. Applying leaves MT5 stopped; launch it
+   yourself after checking the import result. No EA is compiled or auto-attached.
+
+Uploads use 4 MiB requests so large folders do not require one oversized proxy
+request. Folder imports accept up to 10,000 files and 1 GiB of accepted contents.
+ZIPs are unpacked in the browser, limited to 128 MiB compressed / 256 MiB expanded;
+use folder selection for larger imports. ZIP64, encrypted archives and symlinks
+are rejected. ZIP names must be ASCII or explicitly UTF-8; use folder selection
+for archives with legacy filename encodings. Streaming inflate also bounds actual
+expanded bytes rather than trusting archive metadata. Traversal, duplicate Windows paths and symlink destinations are
+rejected by the server. Logs, history, tester/cache files, executables and
+`origin.txt` are excluded. Existing files are never deleted to mirror a source.
+
+Staging and backups live under `/data/imports`, with private directory permissions
+because they may contain account configuration. One staged import is allowed at
+a time; cancel it before starting another. Staged imports expire after 24 hours,
+but must be cancelled explicitly to remove their data. Successful backups remain
+under `/data/imports/backup-<id>-<attempt>`; retain or remove them according to your backup
+policy. A failed apply attempts rollback. If the process is interrupted mid-apply,
+launch is blocked until **Recover previous data** restores the pre-import files.
+Recovery requires MT5 to be stopped too. Do not edit the data folder externally
+while applying or recovering an import.
+
+The uploader computes SHA-256 while sending each file; the server verifies the
+staged bytes on completion and again before apply. Backups and replacement files
+are synced before the recovery journal is removed. Filesystem/hardware durability
+still depends on the host's storage correctly honouring flushes. Profile imports
+merge files, not entire directories: review same-named chart profiles carefully
+to avoid unintentionally mixing existing and imported charts.
+
+### Resume the last account and charts
+
+`MT5_SESSION_MODE=restore` is the default from version 3. It starts the existing
+terminal without rewriting `common.ini`, generating presets or replaying the
+Compose `[StartUp]` block. MT5 restores its own saved account and chart profile.
+The full Wine prefix, registry, terminal data and HOME persist under the existing
+`MT5_DATA_DIR:/data` mount. Use the same host directory on container recreation;
+a Docker image alone does not contain your runtime account state. Enable
+**Save password** in MT5. The launcher does not request or log broker passwords.
+
+Graceful shutdown now ends the Wine session before removing the desktop, giving
+MT5 time to flush account and chart state. Abrupt power loss cannot preserve
+unsaved changes. Migrating account files from another machine is not equivalent
+to retaining the same Wine prefix: saved credentials may be machine-bound and
+require a one-time login. This is not a VM memory snapshot or a heartbeat guarantee.
+
 ### Managed common.ini and EA Presets
 
 Set `MT5_STARTUP_CONFIG=true` to have the container update the active
@@ -209,6 +309,9 @@ terminal's persisted `config/common.ini` before launching MT5. The update keeps
 account login, server, encrypted WebRequest allow-list, and other terminal state
 inside the mounted Wine prefix, then overlays the low-resource chart settings
 and optional EA startup settings controlled by Compose.
+
+This behaviour is opt-in: also set `MT5_SESSION_MODE=managed`. It does not run
+in the default restore mode, where the last saved terminal session takes priority.
 
 The shared `docker-compose.yml` intentionally does not include these optional
 EA and `common.ini` variables, because they are account- and EA-specific. Put
@@ -230,6 +333,7 @@ services:
   linux-mt5:
     environment:
       MT5_STARTUP_CONFIG: "true"
+      MT5_SESSION_MODE: "managed"
       MT5_STARTUP_EXPERT: "TelegramTC_EA"
       MT5_STARTUP_SYMBOL: "XAUUSDr"
       MT5_STARTUP_PERIOD: "H1"
@@ -297,6 +401,7 @@ PUBLIC_NOVNC_URL=http://<your-host-ip>:17080/vnc.html?autoconnect=1&resize=scale
 WEBSOCKIFY_HEARTBEAT_SECONDS=30
 ENABLE_AUDIO=false
 AUTO_LAUNCH_MT5=true
+MT5_SESSION_MODE=restore
 AUTO_INSTALL_MT5=true
 AUTO_LAUNCH_DELAY_MS=2500
 MT5_WINEBOOT_TIMEOUT_MS=900000
@@ -358,6 +463,18 @@ POST /api/mt5/install
 POST /api/mt5/launch
 POST /api/mt5/stop
 POST /api/mt5/restart
+GET  /api/mt5/imports
+POST /api/mt5/imports
+GET  /api/mt5/imports/<id>
+POST /api/mt5/imports/<id>/chunk?index=<file-index>&offset=<bytes>
+POST /api/mt5/imports/<id>/apply
+POST /api/mt5/imports/<id>/cancel
+POST /api/mt5/imports/recover
+POST /api/mt5/expert/acknowledge-removals
+GET  /api/mt5/files?path=<relative-or-active-data-folder-path>
+GET  /api/desktop/clipboard
+POST /api/desktop/clipboard/read
+POST /api/desktop/clipboard/write
 ```
 
 `/api/health` returns 503 when MT5 is in a failed state. Every `POST` requires
@@ -365,12 +482,18 @@ the custom header `X-Linux-MT5: 1`; the control UI sends it automatically. The
 header makes cross-origin browser form posts fail, which prevents an arbitrary
 website from stopping or restarting the terminal through the operator's browser.
 
+The Files and Clipboard capability GET routes also require `X-Linux-MT5: 1`.
+Clipboard write accepts JSON `{ "text": "..." }`; read is a manual POST returning
+`{ "text": "..." }`. Responses are not cached. Import manifests accept an optional
+canonical relative `destination` obtained from Files. Omit it for a full data-folder
+restore; include it to retain selected folder names below that destination.
+
 ### EA log health
 
 When both `MT5_STARTUP_CONFIG` and `MT5_STARTUP_EXPERT` are set, the supervisor
 reads new entries in the selected terminal's native journal on each reconcile
 interval. `/api/status` and `/api/health` include an `expert` object with a
-`name`, `state` (`unverified`, `loaded`, or `failed`), and optional `lastError`.
+`name`, `state` (`unverified`, `loaded`, `removed`, or `failed`), and optional `lastError`.
 An initialisation failure or removal makes health return 503 even while the
 terminal process is running. The UI shows the EA log status and failure.
 
@@ -381,6 +504,11 @@ ageing. Old journal entries are skipped on a managed launch; subsequent failure
 entries are reported. Each symbol/timeframe is tracked separately; a fresh
 successful attachment on that same chart clears its recorded failure. Any
 remaining failed instance keeps health at 503.
+Removal is displayed separately as **EA DETACHED**, not an initialisation
+failure. After a deliberate detach, **Acknowledge deliberate removal** clears
+only removal records; it never clears a recorded initialisation failure or
+claims the EA is heartbeating. A removal still makes health return 503 until
+acknowledged or successfully reattached on that chart.
 The supervisor does not retry trades or compile, replace, or repair EA binaries.
 
 Before a managed launch, the configured compiled expert and any hand-authored

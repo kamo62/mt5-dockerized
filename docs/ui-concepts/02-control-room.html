@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>02 · Control Room</title>
+<style>
+html,body{margin:0;padding:0;background:transparent}
+.cr,.cr *{box-sizing:border-box}
+.cr{
+  --fg:var(--foreground,CanvasText);--bgc:var(--background,Canvas);--cardc:var(--card,Canvas);
+  --line:var(--border,color-mix(in srgb,CanvasText 18%,transparent));
+  --sub:color-mix(in srgb,var(--fg) 64%,transparent);
+  --chrome:color-mix(in srgb,var(--fg) 4%,var(--cardc));
+  --hover:color-mix(in srgb,var(--fg) 7%,var(--cardc));
+  --ok:var(--success,#2f8a57);--warn:var(--warning,#b7791f);--bad:var(--destructive,#c53030);
+  --inf:var(--info,#2b6cb0);--pri:var(--primary,Highlight);--r:var(--radius,8px);
+  --mono:var(--font-mono,ui-monospace),SFMono-Regular,Menlo,Consolas,monospace;
+  container:cr/inline-size;position:relative;display:grid;gap:8px;width:100%;
+  font:14px/1.45 var(--font-sans,ui-sans-serif),system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--fg);background:none
+}
+.cr button,.cr input{font:inherit;color:inherit}
+.cr svg{flex-shrink:0}
+.cr :focus-visible{outline:2px solid var(--pri);outline-offset:2px}
+.cr code,.mono{font-family:var(--mono);font-size:12px}
+.sub{color:var(--sub)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* buttons */
+.b{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:32px;padding:0 10px;border:1px solid var(--line);border-radius:calc(var(--r) - 2px);background:var(--cardc);font-size:13px;font-weight:550;cursor:pointer;white-space:nowrap}
+.b:hover:not(:disabled){background:var(--hover)}
+.b:disabled{opacity:.45;cursor:not-allowed}
+.b svg{width:16px;height:16px}
+.b.pri{border-color:color-mix(in srgb,var(--pri) 55%,var(--line));background:color-mix(in srgb,var(--pri) 13%,var(--cardc))}
+.b.danger{border-color:color-mix(in srgb,var(--bad) 50%,var(--line));background:color-mix(in srgb,var(--bad) 9%,var(--cardc))}
+.b.danger svg{color:var(--bad)}
+.b.ghost{border-color:transparent;background:transparent}
+.b.ghost:hover:not(:disabled){background:var(--hover)}
+.b.icon{width:32px;padding:0}
+.b.sm{min-height:28px;font-size:12px;padding:0 8px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:calc(var(--r) - 2px);overflow:hidden}
+.seg button{border:0;background:transparent;min-height:28px;padding:0 9px;font-size:12px;font-weight:550;cursor:pointer;color:var(--sub)}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed=true]{background:color-mix(in srgb,var(--pri) 13%,var(--cardc));color:var(--fg)}
+
+/* LEDs */
+.led{width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0;background:var(--sub)}
+.led.ok{background:var(--ok)}.led.warn{background:var(--warn)}.led.bad{background:var(--bad)}.led.inf{background:var(--inf)}
+.led.mute{background:transparent;border:1.5px dashed var(--sub)}
+.led.busy{background:var(--warn);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.3}}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* command bar */
+.cmd{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;grid-template-areas:"brand ev cue acts";align-items:center;gap:10px;padding:8px;background:var(--chrome);border:1px solid var(--line);border-radius:var(--r)}
+.brand{grid-area:brand;display:flex;align-items:center;gap:8px;padding-right:4px}
+.mark{width:28px;height:28px;border-radius:calc(var(--r) - 2px);display:grid;place-items:center;background:color-mix(in srgb,var(--pri) 15%,var(--cardc));border:1px solid color-mix(in srgb,var(--pri) 35%,var(--line))}
+.mark svg{width:16px;height:16px}
+.brand b{display:block;font-size:14px;line-height:1.1}
+.brand small{display:block;font-size:11px;color:var(--sub);line-height:1.2}
+.evs{grid-area:ev;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;max-width:600px}
+.ev{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px;align-items:center;padding:4px 10px;min-height:40px;border:1px solid var(--line);border-radius:calc(var(--r) - 2px);background:var(--cardc);text-align:left;cursor:pointer;min-width:0}
+.ev:hover{background:var(--hover)}
+.ev .led{grid-row:span 2}
+.ev small{font-size:11px;color:var(--sub);letter-spacing:.02em;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev b{font-size:13px;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cue{grid-area:cue;display:flex;align-items:center;gap:7px;padding:4px 9px;border:1px dashed var(--line);border-radius:calc(var(--r) - 2px);font-size:11px;line-height:1.25;color:var(--sub);max-width:170px}
+.cue b{color:var(--fg);font-weight:600}
+.cue .led{background:var(--inf)}
+.acts{grid-area:acts;display:flex;gap:6px}
+.alert{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;border:1px solid color-mix(in srgb,var(--warn) 50%,var(--line));border-left-width:4px;border-radius:var(--r);background:color-mix(in srgb,var(--warn) 8%,var(--cardc));font-size:13px}
+.alert.bad{border-color:color-mix(in srgb,var(--bad) 50%,var(--line));background:color-mix(in srgb,var(--bad) 7%,var(--cardc))}
+.alert span{flex:1;min-width:200px}
+#alert:empty{display:none}
+
+/* main */
+.main{display:grid;grid-template-columns:60px minmax(0,1fr);gap:8px;align-items:start}
+.rail{display:flex;flex-direction:column;gap:2px;padding:5px;background:var(--chrome);border:1px solid var(--line);border-radius:var(--r)}
+.rb{position:relative;display:grid;justify-items:center;gap:3px;padding:8px 2px 6px;border:0;border-radius:calc(var(--r) - 3px);background:transparent;color:var(--sub);font-size:11px;font-weight:550;cursor:pointer;line-height:1.1}
+.rb svg{width:18px;height:18px}
+.rb:hover{background:var(--hover);color:var(--fg)}
+.rb[aria-pressed=true]{background:color-mix(in srgb,var(--pri) 14%,transparent);color:var(--fg)}
+.rb[aria-pressed=true]::before{content:"";position:absolute;left:-5px;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--pri)}
+.rb .badge{position:absolute;top:5px;right:10px;width:7px;height:7px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px var(--chrome)}
+.rail hr{width:70%;border:0;border-top:1px solid var(--line);margin:4px auto}
+.stage{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;min-width:0}
+.deskcol{display:grid;gap:8px;min-width:0}
+
+/* desktop */
+.desk{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--chrome)}
+.dtool{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 8px;border-bottom:1px solid var(--line)}
+.dtitle{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;margin-right:4px}
+.dtitle svg{width:16px;height:16px;color:var(--sub)}
+.dtitle .mono{font-weight:400;color:var(--sub)}
+.dstat{margin-left:auto;font-size:12px;color:var(--sub);max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.screen{position:relative;aspect-ratio:16/10;overflow:hidden;background:color-mix(in srgb,var(--fg) 12%,var(--bgc))}
+.screen.native{overflow:auto}
+.screen svg.dsk{display:block;width:100%;height:100%}
+.screen.native svg.dsk{width:165%;height:165%}
+.screen.kbd{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--pri) 60%,transparent)}
+.sov{position:absolute;inset:0;display:grid;place-items:center;padding:16px;background:color-mix(in srgb,var(--bgc) 60%,transparent);backdrop-filter:blur(2px)}
+.sov[hidden]{display:none}
+.sovc{max-width:360px;padding:16px;border:1px solid var(--line);border-radius:var(--r);background:var(--cardc);display:grid;gap:8px}
+.sovc h3{margin:0;font-size:15px;display:flex;align-items:center;gap:8px}
+.sovc p{margin:0;font-size:13px;color:var(--sub)}
+.sovc .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.spin{width:16px;height:16px;border:2px solid color-mix(in srgb,var(--fg) 20%,transparent);border-top-color:var(--warn);border-radius:50%;animation:spin .9s linear infinite}
+/* svg desktop palette */
+.d-wall{fill:color-mix(in srgb,var(--fg) 13%,var(--bgc))}
+.d-win{fill:var(--cardc);stroke:var(--line)}
+.d-bar{fill:color-mix(in srgb,var(--fg) 6%,var(--cardc))}
+.d-ln{stroke:var(--line);stroke-width:1.5}
+.d-grid{stroke:color-mix(in srgb,var(--fg) 7%,transparent);stroke-width:1}
+.d-chart{fill:color-mix(in srgb,var(--fg) 2%,var(--cardc))}
+.d-ph{fill:color-mix(in srgb,var(--fg) 11%,transparent)}
+.d-t{fill:var(--fg);font-family:var(--font-sans,system-ui),sans-serif;font-size:17px}
+.d-s{fill:var(--sub);font-family:var(--font-sans,system-ui),sans-serif;font-size:15px}
+.d-m{fill:var(--sub);font-family:var(--mono);font-size:14px}
+.c-up{fill:none;stroke:var(--ok);stroke-width:1.6}
+.c-dn{fill:color-mix(in srgb,var(--fg) 45%,transparent);stroke:color-mix(in srgb,var(--fg) 45%,transparent);stroke-width:1.6}
+.c-w{stroke:color-mix(in srgb,var(--fg) 45%,transparent);stroke-width:1.4}
+.d-ea{fill:color-mix(in srgb,var(--ok) 14%,var(--cardc));stroke:color-mix(in srgb,var(--ok) 50%,var(--line))}
+#mt5win.off,#eabadge.off{display:none}
+
+/* activity */
+.act{border:1px solid var(--line);border-radius:var(--r);background:var(--chrome);overflow:hidden}
+.act-h{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 4px}
+.act-t{flex:1;min-width:0;display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:6px;border-radius:calc(var(--r) - 3px);cursor:pointer;text-align:left;font-size:13px}
+.act-t:hover{background:var(--hover)}
+.act-t svg{width:16px;height:16px;transition:transform .15s}
+.act-t[aria-expanded=true] svg{transform:rotate(180deg)}
+.act-t b{font-weight:600}
+.act-t .last{color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.cnt{font-size:11px;padding:1px 6px;border-radius:9px;background:color-mix(in srgb,var(--fg) 8%,transparent);color:var(--sub)}
+.act-list{list-style:none;margin:0;padding:4px 0;max-height:184px;overflow:auto;border-top:1px solid var(--line);background:var(--cardc)}
+.act-list li{display:grid;grid-template-columns:70px 64px minmax(0,1fr);gap:8px;align-items:baseline;padding:4px 12px;font-size:13px}
+.act-list time{font-family:var(--mono);font-size:12px;color:var(--sub)}
+.kind{font-size:11px;font-weight:600;color:var(--sub)}
+.kind.warn{color:var(--warn)}.kind.action{color:var(--inf)}
+.act-list .empty{display:block;color:var(--sub)}
+
+/* drawer */
+.drawer{position:relative;width:344px}
+.drawer[hidden]{display:none}
+.dw{position:absolute;inset:0;overflow:auto;background:var(--cardc);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:14px;overscroll-behavior:contain}
+.dw-h{display:flex;align-items:flex-start;gap:8px}
+.dw-h div{flex:1}
+.dw h2{margin:0;font-size:16px;line-height:1.3}
+.dw h3{margin:0 0 6px;font-size:12px;font-weight:600;color:var(--sub);letter-spacing:.03em}
+.dw p{margin:0;font-size:13px}
+.dw-h p{color:var(--sub);margin-top:2px}
+.blk{display:grid;gap:8px}
+.note{padding:8px 10px;border-radius:calc(var(--r) - 2px);border:1px solid var(--line);font-size:13px;background:var(--chrome)}
+.note.warn{border-color:color-mix(in srgb,var(--warn) 50%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--cardc))}
+.note.ok{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));background:color-mix(in srgb,var(--ok) 7%,var(--cardc))}
+.note.bad{border-color:color-mix(in srgb,var(--bad) 45%,var(--line));background:color-mix(in srgb,var(--bad) 7%,var(--cardc))}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.flist{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:calc(var(--r) - 2px);overflow:hidden}
+.flist li{display:flex;align-items:center;gap:8px;padding:6px 8px;font-size:13px;min-height:34px}
+.flist li+li{border-top:1px solid var(--line)}
+.flist .p{flex:1;min-width:0;font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+.vm-address{display:flex;gap:6px;min-width:0}.vm-address input{width:100%;min-width:0;background:var(--chrome);color:var(--fg);border:1px solid var(--line);border-radius:calc(var(--r) - 2px);padding:8px;font:12px var(--mono)}.vm-folder-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.vm-folder-grid .b{font-size:11px;padding:0 6px}.vm-text{width:100%;min-height:100px;resize:vertical;font:12px/1.6 var(--mono);padding:10px;border:1px solid var(--line);border-radius:calc(var(--r) - 2px);background:var(--chrome);color:var(--fg)}.vm-caption{font-size:12px;color:var(--sub);line-height:1.55}.vm-target{overflow-wrap:anywhere}.vm-division{border:0;border-top:1px solid var(--line);width:100%;margin:2px 0}
+.tag{font-size:11px;font-weight:600;padding:1px 7px;border-radius:9px;white-space:nowrap;border:1px solid var(--line);color:var(--sub)}
+.tag.ok{color:var(--fg);border-color:color-mix(in srgb,var(--ok) 50%,var(--line));background:color-mix(in srgb,var(--ok) 10%,transparent)}
+.tag.warn{color:var(--fg);border-color:color-mix(in srgb,var(--warn) 55%,var(--line));background:color-mix(in srgb,var(--warn) 12%,transparent)}
+.tag.inf{color:var(--fg);border-color:color-mix(in srgb,var(--inf) 45%,var(--line));background:color-mix(in srgb,var(--inf) 9%,transparent)}
+.route{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;padding:8px 10px;border-radius:calc(var(--r) - 2px);background:var(--chrome)}
+.route code{color:var(--fg)}
+.path{display:grid;gap:3px;padding:8px 10px;border:1px solid var(--line);border-radius:calc(var(--r) - 2px)}
+.path .top{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;color:var(--sub)}
+.path code{overflow-wrap:anywhere;user-select:all}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;list-style:none;margin:0;padding:0;counter-reset:s}
+.steps li{counter-increment:s;font-size:11px;font-weight:600;color:var(--sub);padding-top:6px;border-top:3px solid var(--line)}
+.steps li::before{content:counter(s) " · "}
+.steps li.done{border-color:color-mix(in srgb,var(--ok) 70%,var(--line));color:var(--fg)}
+.steps li[aria-current=step]{border-color:var(--pri);color:var(--fg)}
+.opt{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:8px 10px;border:1px solid var(--line);border-radius:calc(var(--r) - 2px);cursor:pointer;font-size:13px}
+.opt input{margin:2px 0 0;width:16px;height:16px;grid-row:span 2;accent-color:var(--pri)}
+.opt b{font-weight:600}
+.opt span{color:var(--sub);font-size:12px}
+.opt.def{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
+.bar{height:6px;border-radius:3px;background:color-mix(in srgb,var(--fg) 10%,transparent);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--pri);transition:width .2s}
+.sum{display:flex;gap:6px;flex-wrap:wrap}
+.evrow{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:10px;border:1px solid var(--line);border-radius:calc(var(--r) - 2px)}
+.evrow .led{margin-top:6px;grid-row:span 3}
+.evrow b{font-size:14px}
+.evrow small{font-size:12px;color:var(--sub)}
+.evrow p{font-size:13px}
+.checks{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:13px}
+.checks li{display:grid;grid-template-columns:18px 1fr;gap:6px}
+.checks svg{width:16px;height:16px;margin-top:2px}
+.checks.yes svg{color:var(--ok)}.checks.mind svg{color:var(--warn)}
+details.fl summary{cursor:pointer;font-size:13px;font-weight:600;padding:4px 0}
+
+/* modal */
+.mbg{position:absolute;inset:0;z-index:40;display:grid;justify-items:center;align-items:start;padding:72px 16px 16px;background:color-mix(in srgb,var(--bgc) 55%,transparent);backdrop-filter:blur(2px)}
+.mbg[hidden]{display:none}
+.modal{width:100%;max-width:440px;padding:16px;border:1px solid var(--line);border-radius:var(--r);background:var(--cardc);display:grid;gap:10px;box-shadow:0 18px 50px color-mix(in srgb,var(--fg) 18%,transparent)}
+.modal h2{margin:0;font-size:16px;display:flex;align-items:center;gap:8px}
+.modal h2 svg{width:18px;height:18px;color:var(--warn)}
+.modal p,.modal li{margin:0;font-size:13px}
+.modal ul{margin:0;padding-left:18px;display:grid;gap:4px;color:var(--sub)}
+.modal .row{justify-content:flex-end;margin-top:4px}
+.modal .simtag{font-size:11px;color:var(--sub)}
+
+/* focus mode */
+.cr.focus .rail,.cr.focus .drawer,.cr.focus .act{display:none}
+.cr.focus .main{grid-template-columns:minmax(0,1fr)}
+.cr.focus .stage{grid-template-columns:minmax(0,1fr)}
+
+@container cr (max-width:1040px){
+  .stage{grid-template-columns:minmax(0,1fr)}
+  .drawer{position:absolute;top:0;right:0;bottom:0;width:min(360px,100%);z-index:10}
+  .dw{box-shadow:-10px 14px 40px color-mix(in srgb,var(--fg) 20%,transparent)}
+}
+@container cr (max-width:900px){
+  .cmd{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"brand cue acts" "ev ev ev"}
+  .cue{justify-self:end;max-width:none}
+  .evs{max-width:none}
+  .dstat{display:none}
+}
+@container cr (max-width:560px){
+  .cmd{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"brand cue" "ev ev" "acts acts";gap:8px}
+  .cue{max-width:150px}
+  .evs{gap:4px}
+  .ev{grid-template-columns:minmax(0,1fr);padding:5px 7px;row-gap:1px}
+  .ev .led{grid-row:auto;margin-bottom:2px}
+  .ev b{white-space:normal;font-size:12px}
+  .acts{display:grid;grid-template-columns:1fr 1fr}
+  .main{grid-template-columns:minmax(0,1fr)}
+  .rail{flex-direction:row;overflow-x:auto;padding:4px}
+  .rail hr{display:none}
+  .rb{flex:1 0 58px}
+  .rb[aria-pressed=true]::before{left:10px;right:10px;top:auto;bottom:-4px;width:auto;height:3px}
+  .drawer{position:static;width:auto;order:-1}
+  .dw{position:static;box-shadow:none}
+  .screen{aspect-ratio:4/3}
+  .dtitle .mono{display:none}
+  .act-list li{grid-template-columns:62px minmax(0,1fr)}
+  .act-list .kind{display:none}
+  .mbg{padding-top:24px}
+}
+@media (prefers-reduced-motion:reduce){
+  .cr *{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="cr" id="cr">
+  <header class="cmd" id="cmd"></header>
+  <div id="alert" role="status"></div>
+  <div class="main">
+    <nav class="rail" id="rail" aria-label="Workspace"></nav>
+    <div class="stage">
+      <div class="deskcol">
+        <section class="desk" aria-label="MT5 desktop">
+          <div class="dtool" id="dtool"></div>
+          <div class="screen" id="screen">
+            <svg class="dsk" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Illustrative MT5 desktop. Simulated drawing, not a live screen or market data.">
+              <rect class="d-wall" width="1600" height="1000"/>
+              <text class="d-m" x="1560" y="988" text-anchor="end">openbox · display :99 · illustrative</text>
+              <g id="mt5win">
+                <rect class="d-win" x="36" y="24" width="1528" height="944" rx="6"/>
+                <rect class="d-bar" x="37" y="25" width="1526" height="38" rx="5"/>
+                <text class="d-t" x="60" y="50">MetaTrader 5 · simulated preview</text>
+                <g class="d-ph"><rect x="1450" y="36" width="22" height="14" rx="3"/><rect x="1484" y="36" width="22" height="14" rx="3"/><rect x="1518" y="36" width="22" height="14" rx="3"/></g>
+                <g class="d-s"><text x="60" y="88">File</text><text x="110" y="88">View</text><text x="170" y="88">Insert</text><text x="240" y="88">Charts</text><text x="314" y="88">Tools</text><text x="378" y="88">Window</text><text x="458" y="88">Help</text></g>
+                <line class="d-ln" x1="37" y1="102" x2="1563" y2="102"/>
+                <g class="d-ph"><rect x="56" y="112" width="26" height="22" rx="4"/><rect x="90" y="112" width="26" height="22" rx="4"/><rect x="124" y="112" width="26" height="22" rx="4"/><rect x="170" y="112" width="70" height="22" rx="4"/><rect x="248" y="112" width="26" height="22" rx="4"/><rect x="282" y="112" width="26" height="22" rx="4"/><rect x="330" y="112" width="110" height="22" rx="4"/></g>
+                <line class="d-ln" x1="37" y1="144" x2="1563" y2="144"/>
+                <!-- market watch -->
+                <rect class="d-bar" x="40" y="148" width="340" height="30"/>
+                <text class="d-t" x="52" y="169">Market Watch</text>
+                <g class="d-s" id="mw"></g>
+                <line class="d-ln" x1="40" y1="470" x2="380" y2="470"/>
+                <rect class="d-bar" x="40" y="472" width="340" height="30"/>
+                <text class="d-t" x="52" y="493">Navigator</text>
+                <g class="d-s">
+                  <text x="56" y="532">▸ Accounts</text><text x="56" y="562">▸ Indicators</text><text x="56" y="592">▾ Expert Advisors</text>
+                  <text x="84" y="622" id="nav-ea1">SampleBridge_EA</text><text x="84" y="652">BreakoutScout</text>
+                  <text x="56" y="682">▸ Scripts</text><text x="56" y="712">▸ Services</text><text x="56" y="742">▸ Market</text>
+                </g>
+                <line class="d-ln" x1="382" y1="144" x2="382" y2="790"/>
+                <!-- chart -->
+                <rect class="d-chart" x="384" y="146" width="1178" height="614"/>
+                <g id="grid"></g>
+                <g id="candles"></g>
+                <text class="d-t" x="400" y="174">EURUSD, H1</text>
+                <text class="d-s" x="400" y="196">Illustrative candles · no market data</text>
+                <g id="eabadge">
+                  <rect class="d-ea" x="1300" y="156" width="246" height="34" rx="6"/>
+                  <circle cx="1322" cy="173" r="8" fill="none" stroke="currentColor" class="c-up"/>
+                  <text class="d-t" x="1340" y="179">SampleBridge_EA</text>
+                </g>
+                <rect class="d-bar" x="384" y="760" width="1178" height="30"/>
+                <g class="d-s"><text x="400" y="781">EURUSD,H1</text><text x="520" y="781">XAUUSD,M15</text><text x="660" y="781">GBPJPY,H4</text></g>
+                <line class="d-ln" x1="37" y1="790" x2="1563" y2="790"/>
+                <!-- toolbox -->
+                <g class="d-s"><text x="56" y="818">Trade</text><text x="126" y="818">Exposure</text><text x="222" y="818">History</text><text x="304" y="818">News</text><text x="372" y="818">Journal</text><text x="456" y="818" class="d-t">Experts</text></g>
+                <line class="d-ln" x1="37" y1="830" x2="1563" y2="830"/>
+                <g class="d-ph"><rect x="56" y="846" width="1180" height="12" rx="3"/><rect x="56" y="872" width="960" height="12" rx="3"/><rect x="56" y="898" width="1080" height="12" rx="3"/></g>
+                <rect class="d-bar" x="37" y="930" width="1526" height="36"/>
+                <text class="d-s" x="56" y="954">For Help, press F1</text>
+                <g class="d-ph"><rect x="1180" y="942" width="110" height="12" rx="3"/><rect x="1310" y="942" width="110" height="12" rx="3"/><rect x="1440" y="942" width="100" height="12" rx="3"/></g>
+              </g>
+            </svg>
+            <div class="sov" id="sov" hidden></div>
+          </div>
+        </section>
+        <section class="act" id="act" aria-label="Runtime activity"></section>
+      </div>
+      <aside class="drawer" id="drawer" hidden></aside>
+    </div>
+  </div>
+  <div class="mbg" id="mbg" hidden></div>
+</div>
+
+<script>
+(() => {
+  const root = document.getElementById('cr');
+  const $ = (id) => document.getElementById(id);
+  const rm = matchMedia('(prefers-reduced-motion: reduce)');
+  const D = () => (rm.matches ? 250 : 1100);
+  const P = {
+    monitor:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+    pulse:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+    upload:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/>',
+    folder:'<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/><path d="M12 10v6M9 13l3 3 3-3"/>',
+    shield:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>',
+    term:'<path d="M4 17l6-6-6-6M12 19h8"/>',
+    play:'<path d="M7 4l13 8-13 8z"/>',
+    stop:'<rect x="5" y="5" width="14" height="14" rx="1.5"/>',
+    restart:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+    x:'<path d="M18 6L6 18M6 6l12 12"/>',
+    chev:'<path d="M6 9l6 6 6-6"/>',
+    max:'<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
+    kbd:'<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>',
+    reload:'<path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/>',
+    check:'<path d="M20 6L9 17l-5-5"/>',
+    alert:'<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+    info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+    evid:'<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
+    file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>'
+  };
+  const ic = (n) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+  const btn = (act, arg, html, cls = '', extra = '') =>
+    `<button type="button" class="b ${cls}" data-act="${act}" data-arg="${arg}" data-k="${act}|${arg}" ${extra}>${html}</button>`;
+
+  const PATH = {
+    data: '/data',
+    prefix: '/data/wine-prefix/.mt5',
+    terminal: '/data/wine-prefix/.mt5/drive_c/Program Files/MetaTrader 5/terminal64.exe',
+    datadir: '/data/wine-prefix/.mt5/drive_c/Program Files/MetaTrader 5',
+    experts: '/data/wine-prefix/.mt5/drive_c/Program Files/MetaTrader 5/MQL5/Experts',
+    imports: '/data/imports',
+    installer: '/data/cache/mt5setup.exe'
+  };
+  const ENTRIES = [
+    { p: 'MQL5/Experts/GridPilot.ex5' },
+    { p: 'MQL5/Experts/Archive/TrendLens.ex5' },
+    { p: 'MQL5/Experts/SampleBridge_EA.ex5', conflict: true },
+    { p: 'MQL5/Indicators/SessionBands.ex5' },
+    { p: 'MQL5/Include/RiskMath.mqh' },
+    { p: 'MQL5/Libraries/sample_helper.dll' },
+    { p: 'MQL5/Presets/GridPilot.set', conflict: true },
+    { p: 'MQL5/Profiles/Charts/Default/chart01.chr', conflict: true },
+    { p: 'MQL5/Profiles/Templates/clean.tpl' },
+    { p: 'config/common.ini', account: true },
+    { p: 'config/accounts.dat', account: true },
+    { p: 'config/servers.dat', account: true },
+    { p: 'logs/20261109.log', ex: 'Logs excluded' },
+    { p: 'bases/SampleServer/history/EURUSD.hcc', ex: 'History excluded' },
+    { p: 'origin.txt', ex: 'Install metadata excluded' },
+    { p: 'terminal64.exe', ex: 'Executables excluded' }
+  ];
+  const SAMPLE_PICK = [
+    { n: 'GridPilot.ex5', to: 'Experts' },
+    { n: 'GridPilot.set', to: 'Presets' },
+    { n: 'RiskMath.mqh', to: 'Include' }
+  ];
+
+  const S = {
+    term: 'running', ea: 'loaded', drawer: null, focus: false, native: false, kbd: false, reloading: false,
+    actOpen: false, actFilter: 'all', status: 'Simulated session loaded.', modal: null,
+    files: { picked: [], msg: '', uploading: false, list: ['SampleBridge_EA.ex5', 'BreakoutScout.ex5'] },
+    vm: { path: 'MQL5/Experts', draft: 'MQL5/Experts', text: '', message: '', staged: false },
+    imp: { step: 'select', source: null, progress: 0, overwrite: false, account: false, result: null, msg: '' },
+    log: []
+  };
+  const fmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const log = (kind, msg, ago = 0) => { S.log.unshift({ t: fmt.format(Date.now() - ago * 1000), kind, msg }); S.log.length = Math.min(S.log.length, 40); };
+  log('info', 'Desktop ready: Xvfb, openbox and noVNC started', 212);
+  log('info', 'terminal64.exe detected; session mode restore', 190);
+  log('action', 'Terminal launched; MT5 resuming its saved account and charts', 188);
+  log('info', 'Journal: SampleBridge_EA attachment recorded on EURUSD,H1', 150);
+  log('warn', 'Openbox menu file not found (benign)', 149);
+  let timers = [];
+  const later = (fn, ms) => { const t = setTimeout(() => { timers = timers.filter((x) => x !== t); fn(); render(); }, ms); timers.push(t); return t; };
+  const say = (msg) => { S.status = msg; };
+
+  // labels
+  const TERM = {
+    running: ['Running', 'ok'], stopping: ['Stopping…', 'busy'], stopped: ['Stopped', 'mute'],
+    launching: ['Launching…', 'busy'], failed: ['Exited unexpectedly', 'bad']
+  };
+  const EA = {
+    loaded: ['Attachment recorded', 'ok'], unverified: ['No journal evidence yet', 'mute'],
+    removed: ['Detached', 'warn'], failed: ['Init failure', 'bad'], none: ['Not running', 'mute']
+  };
+  const transitioning = () => S.term === 'stopping' || S.term === 'launching';
+  const impStaged = () => ['staging', 'stopped', 'review'].includes(S.imp.step);
+
+  function chip(label, val, tone, desc) {
+    return `<button type="button" class="ev" data-act="drawer" data-arg="status" data-k="ev|${label}" aria-label="${esc(label)}: ${esc(val)}. ${esc(desc)} Open evidence panel.">
+      <span class="led ${tone}"></span><small>${label}</small><b>${val}</b></button>`;
+  }
+  function renderCmd() {
+    const [tv, tt] = TERM[S.term];
+    const [ev, et] = EA[S.ea];
+    const runningish = S.term === 'running' || transitioning();
+    const primary = runningish
+      ? btn('confirm', 'stop', `${ic('stop')}<span>Stop</span>`, 'danger', S.term !== 'running' ? 'disabled' : '')
+      : btn('launch', '', `${ic('play')}<span>Launch</span>`, 'pri');
+    $('cmd').innerHTML = `
+      <div class="brand"><span class="mark">${ic('term')}</span><span><b>Linux MT5</b><small>Control room</small></span></div>
+      <div class="evs" role="group" aria-label="Runtime evidence, three separate signals">
+        ${chip('Terminal process', tv, tt, 'Supervisor process check.')}
+        ${chip('EA journal', ev, et, 'From the MT5 journal, not proof of liveness.')}
+        ${chip('Heartbeat', 'Unverified', 'mute', 'No heartbeat integration.')}
+      </div>
+      <div class="cue" role="note"><span class="led"></span><span><b>Design preview</b> · Simulated data · Not connected</span></div>
+      <div class="acts">${primary}${btn('confirm', 'restart', `${ic('restart')}<span>Restart</span>`, '', transitioning() || S.imp.step === 'applying' ? 'disabled' : '')}</div>`;
+  }
+  function renderAlert() {
+    const el = $('alert');
+    let h = '';
+    if (S.term === 'failed') h = `<div class="alert bad">${ic('alert')}<span><b>Terminal exited unexpectedly.</b> Simulated crash. Launch or restart when ready; saved account and charts are on the volume.</span>${btn('launch', 'al', `${ic('play')}Launch`, 'sm pri')}</div>`;
+    else if (S.ea === 'failed') h = `<div class="alert bad">${ic('alert')}<span><b>EA init failure recorded.</b> Journal: SampleBridge_EA OnInit failed (sample). The terminal process is still running.</span>${btn('drawer', 'status', 'View evidence', 'sm')}</div>`;
+    else if (S.ea === 'removed') h = `<div class="alert">${ic('alert')}<span><b>EA detached</b> from EURUSD,H1. Reattach in MT5, or acknowledge if the removal was deliberate.</span>${btn('ack', 'al', 'Acknowledge removal', 'sm')}</div>`;
+    el.innerHTML = h;
+  }
+  function renderRail() {
+    const items = [
+      ['desktop', 'monitor', 'Desktop'], ['status', 'evid', 'Evidence'], ['files', 'upload', 'Files'],
+      ['import', 'folder', 'Import'], ['session', 'shield', 'Session'], ['paths', 'term', 'Paths']
+    ];
+    $('rail').innerHTML = items.map(([id, icon, label], i) => {
+      const on = id === 'desktop' ? S.drawer === null : S.drawer === id;
+      const badge = id === 'import' && impStaged() ? '<span class="badge" aria-hidden="true"></span>' : '';
+      const extra = id === 'import' && impStaged() ? ' (staged import waiting)' : '';
+      return `${i === 1 ? '<hr>' : ''}<button type="button" class="rb" data-act="drawer" data-arg="${id}" data-k="rail|${id}" aria-pressed="${on}" aria-label="${label}${extra}">${ic(icon)}<span aria-hidden="true">${label}</span>${badge}</button>`;
+    }).join('');
+  }
+  function renderTool() {
+    $('dtool').innerHTML = `
+      <span class="dtitle">${ic('monitor')}MT5 desktop <span class="mono">noVNC · simulated</span></span>
+      <span class="seg" role="group" aria-label="Scale">
+        <button type="button" data-act="scale" data-arg="fit" data-k="scale|fit" aria-pressed="${!S.native}">Fit</button>
+        <button type="button" data-act="scale" data-arg="native" data-k="scale|native" aria-pressed="${S.native}">1:1</button>
+      </span>
+      ${btn('kbd', '', `${ic('kbd')}<span>Keyboard</span>`, 'sm ghost', `aria-pressed="${S.kbd}" title="Capture keyboard for the desktop (simulated)"`)}
+      ${btn('clipboard', '', `${ic('file')}<span>Clipboard</span>`, 'sm ghost')}
+      ${btn('reload', '', `${ic('reload')}<span>Reload view</span>`, 'sm ghost')}
+      ${btn('focusmode', '', `${ic('max')}<span>${S.focus ? 'Exit focus' : 'Focus'}</span>`, 'sm ghost', `aria-pressed="${S.focus}"`)}
+      <span class="dstat" aria-live="polite">${esc(S.status)}</span>`;
+    const sc = $('screen');
+    sc.classList.toggle('native', S.native);
+    sc.classList.toggle('kbd', S.kbd);
+    sc.tabIndex = S.native ? 0 : -1;
+    $('mt5win').classList.toggle('off', !(S.term === 'running' || S.term === 'stopping'));
+    $('eabadge').classList.toggle('off', !(S.term === 'running' && S.ea === 'loaded'));
+    const ov = $('sov');
+    let h = '';
+    if (S.reloading) h = `<div class="sovc" role="status"><h3><span class="spin"></span>Reconnecting desktop view…</h3><p>Only the browser view reloads. MT5 keeps running.</p></div>`;
+    else if (S.term === 'stopping') h = `<div class="sovc" role="status"><h3><span class="spin"></span>Closing MetaTrader gracefully…</h3><p>Ending the Wine session so MT5 can flush account and chart state.</p></div>`;
+    else if (S.term === 'launching') h = `<div class="sovc" role="status"><h3><span class="spin"></span>Starting terminal64.exe…</h3><p>Restore mode: MT5 reopens its own saved account and charts.</p></div>`;
+    else if (S.term === 'stopped') h = `<div class="sovc"><h3><span class="led mute"></span>Terminal stopped</h3><p>The Linux desktop is still up. Saved account and charts stay on the data volume. EAs are not running.</p><div class="row">${btn('launch', 'ov', `${ic('play')}Launch terminal`, 'pri')}${impStaged() ? btn('drawer', 'import', `${ic('folder')}Review staged import`) : ''}</div></div>`;
+    else if (S.term === 'failed') h = `<div class="sovc"><h3><span class="led bad"></span>Terminal exited unexpectedly</h3><p>Simulated. The supervisor noticed the process disappeared.</p><div class="row">${btn('launch', 'ov', `${ic('play')}Launch terminal`, 'pri')}${btn('drawer', 'status', 'View evidence')}</div></div>`;
+    ov.hidden = !h;
+    ov.innerHTML = h;
+  }
+  function renderAct() {
+    const list = S.log.filter((l) => S.actFilter === 'all' || l.kind === S.actFilter);
+    const last = S.log[0];
+    $('act').innerHTML = `
+      <div class="act-h">
+        <button type="button" class="act-t" data-act="acttoggle" data-arg="" data-k="acttoggle|" aria-expanded="${S.actOpen}" aria-controls="actlist">
+          ${ic('chev')}<b>Activity</b><span class="cnt">${S.log.length}</span>
+          <span class="last">${last ? esc(last.msg) : 'No events'}</span>
+        </button>
+        ${S.actOpen ? `<span class="seg" role="group" aria-label="Filter activity">
+          ${['all', 'action', 'warn'].map((f) => `<button type="button" data-act="actfilter" data-arg="${f}" data-k="actfilter|${f}" aria-pressed="${S.actFilter === f}">${{ all: 'All', action: 'Actions', warn: 'Warnings' }[f]}</button>`).join('')}
+        </span>` : ''}
+      </div>
+      ${S.actOpen ? `<ul class="act-list" id="actlist">${list.length ? list.map((l) => `<li><time>${l.t}</time><span class="kind ${l.kind}">${{ info: 'Info', action: 'Action', warn: 'Warning' }[l.kind]}</span><span>${esc(l.msg)}</span></li>`).join('') : '<li class="empty">Nothing matches this filter.</li>'}</ul>` : ''}`;
+  }
+
+  // drawers
+  function head(title, sub) {
+    return `<div class="dw-h"><div><h2 id="dwt">${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div>${btn('close', '', ic('x'), 'icon ghost', 'aria-label="Close panel"')}</div>`;
+  }
+  function dStatus() {
+    const [tv, tt] = TERM[S.term];
+    const [ev, et] = EA[S.ea];
+    const sc = (id, label) => `<button type="button" data-act="scenario" data-arg="${id}" data-k="scenario|${id}" aria-pressed="${S.scenario === id}">${label}</button>`;
+    return head('Runtime evidence', 'Three independent signals. One being green says nothing about the others.') + `
+      <div class="blk">
+        <div class="evrow"><span class="led ${tt}"></span><b>Terminal process · ${tv}</b><small>Source: supervisor process reconcile</small><p>Whether terminal64.exe is alive under Wine. It does not tell you what any EA is doing.</p></div>
+        <div class="evrow"><span class="led ${et}"></span><b>EA journal · ${ev}</b><small>Source: MT5 journal for SampleBridge_EA</small><p>${S.ea === 'loaded' ? 'MT5 recorded an attachment. That is not proof the EA initialised, is trading or is alive.' : S.ea === 'removed' ? 'MT5 recorded a removal from EURUSD,H1.' : S.ea === 'failed' ? 'MT5 recorded an initialisation failure (sample text).' : S.ea === 'none' ? 'Terminal is not running, so no EA can be running.' : 'No attachment or failure recorded since the last launch.'}</p>
+          ${S.ea === 'removed' ? `<div class="row" style="margin-top:6px">${btn('ack', 'dw', 'Acknowledge deliberate removal', 'sm')}</div>` : ''}</div>
+        <div class="evrow"><span class="led mute"></span><b>Heartbeat · Unverified</b><small>Source: none configured</small><p>This app has no heartbeat integration. If you need liveness, age heartbeats on the consumer side.</p></div>
+      </div>
+      <div class="blk"><h3>PREVIEW OTHER STATES (SIMULATION)</h3>
+        <span class="seg" role="group" aria-label="Simulated scenario" style="flex-wrap:wrap">${sc('normal', 'Normal')}${sc('removed', 'EA detached')}${sc('failed', 'EA init failure')}${sc('crash', 'Terminal exited')}</span>
+      </div>`;
+  }
+  function dFiles() {
+    const F = S.files;
+    const busy = F.uploading;
+    const V = S.vm;
+    return head('Files & clipboard', 'Choose the destination directly. Skip the VNC copy-and-paste friction.') + `
+      <div class="blk"><h3>DESTINATION IN MT5 DATA FOLDER</h3><div class="vm-address"><input id="vm-destination" data-k="vm|destination" aria-label="Paste a destination inside the MT5 data folder" value="${esc(V.draft)}" spellcheck="false">${btn('vmgo', '', 'Go')}</div><span class="vm-caption">Example root: C:\\Program Files\\MetaTrader 5</span>
+      <div class="vm-folder-grid">${[['MQL5/Experts','Experts'],['MQL5/Indicators','Indicators'],['MQL5/Include','Include'],['MQL5/Libraries','Libraries'],['MQL5/Files','Files'],['Profiles','Profiles']].map(([path,label]) => btn('vmfolder',path,label)).join('')}</div>
+      <div class="note"><b class="vm-target">MT5 / ${esc(V.path.split('/').join(' / '))}</b><p style="margin-top:7px">Drop or choose files for this destination in the application. Browser support for pasting folders varies.</p><div class="row" style="margin-top:9px">${btn('vmpaste', '', `${ic('upload')}Preview file paste here`, 'pri')}</div></div>
+      ${V.staged ? `<ul class="flist"><li><span class="p">${esc(V.path)}/ExampleEA/ExampleEA.ex5</span><span class="tag inf">Staged</span></li><li><span class="p">${esc(V.path)}/ExampleEA/resources/settings.json</span><span class="tag inf">Staged</span></li></ul>` : ''}
+      <p class="vm-caption">File-manager simulation only. Applying in the application still requires review and a stopped terminal.</p></div>
+      <hr class="vm-division"><div class="blk"><h3>TEXT CLIPBOARD · PREVIEW</h3><p>Paste text in this box. The bridge would hand it to MT5 without copying through VNC.</p><textarea id="vm-clipboard" data-k="vm|clipboard" class="vm-text" aria-label="Desktop clipboard text preview" placeholder="Ctrl / Cmd + V here…">${esc(V.text)}</textarea><div class="row">${btn('vmsend', '', 'Send to MT5 (demo)', 'sm')}${btn('vmget', '', 'Get desktop text (demo)', 'sm')}${btn('vmselect', '', 'Select text', 'sm ghost')}</div><p class="vm-caption">Text stays in this preview. No system clipboard is read automatically and no desktop is contacted.</p>${V.message ? `<div class="note" role="status">${esc(V.message)}</div>` : ''}</div><hr class="vm-division"><h3>QUICK EA UPLOAD · SEPARATE ROUTING</h3>
+      <div class="route"><code>.ex5 .mq5</code><span>Experts</span><code>.set</code><span>Presets</span><code>.mqh</code><span>Include</span><code>.dll</code><span>Libraries</span></div>
+      <div class="blk">
+        <div class="row">${btn('pick', '', `${ic('file')}Choose files (sample)`, '', busy ? 'disabled' : '')}${F.picked.length ? btn('upload', '', `${ic('upload')}Upload ${F.picked.length}`, 'pri', busy ? 'disabled' : '') : ''}</div>
+        ${F.picked.length ? `<ul class="flist" aria-label="Selected files">${F.picked.map((f, i) => `<li><span class="p">${f.n}</span><span class="tag">→ ${f.to}</span>${btn('unpick', String(i), ic('x'), 'icon ghost sm', `aria-label="Remove ${f.n}" ${busy ? 'disabled' : ''}`)}</li>`).join('')}</ul>` : '<p class="sub">No files selected. The picker uses invented sample files.</p>'}
+        ${busy ? '<div class="bar" role="progressbar" aria-label="Uploading"><i style="width:70%"></i></div>' : ''}
+        ${F.msg ? `<div class="note ok" role="status">${F.msg}</div>` : ''}
+      </div>
+      <div class="note">Need a whole terminal set up: EAs, indicators, profiles, templates? ${btn('drawer', 'import', 'Import data folder →', 'sm ghost')}</div>
+      <div class="path"><div class="top">Target folder</div><code>${PATH.experts}</code></div>
+      <div class="blk"><h3>IN EXPERTS (SAMPLE)</h3><ul class="flist">${F.list.map((n) => `<li><span class="p">${n}</span></li>`).join('')}</ul>
+        <p class="sub">Uploading never attaches an EA to a chart. Restart MT5 if the Navigator does not refresh.</p></div>`;
+  }
+  function entryAction(e) {
+    const I = S.imp;
+    if (e.ex) return ['Excluded', '', e.ex];
+    if (e.account) return I.account ? ['Replace · backup', 'warn'] : ['Keep current account', 'ok'];
+    if (e.conflict) return I.overwrite ? ['Replace · backup', 'warn'] : ['Keep existing', ''];
+    return ['Add', 'inf'];
+  }
+  const applyCount = () => ENTRIES.filter((e) => ['Add', 'Replace · backup'].includes(entryAction(e)[0])).length;
+  function dImport() {
+    const I = S.imp;
+    const at = { select: 0, staging: 1, stopped: 1, review: 2, applying: 3, done: 3 }[I.step];
+    const steps = ['Select', 'Stage', 'Review', 'Apply'].map((s, i) => `<li class="${i < at || I.step === 'done' ? 'done' : ''}" ${i === at && I.step !== 'done' ? 'aria-current="step"' : ''}>${s}</li>`).join('');
+    let body = '';
+    if (I.step === 'select') {
+      body = `<p>Use the folder MT5 opens from <b>File → Open Data Folder</b>, or a ZIP of it. Subfolders are kept.</p>
+        <div class="row">${btn('source', 'folder', `${ic('folder')}Choose folder (sample)`, I.source === 'folder' ? 'pri' : '')}${btn('source', 'zip', `${ic('file')}Choose ZIP (sample)`, I.source === 'zip' ? 'pri' : '')}</div>
+        ${I.source ? `<div class="note"><b>${I.source === 'zip' ? 'Sample-Terminal.zip' : 'Sample-Terminal/'}</b> · ${ENTRIES.length} files selected</div>${btn('stage', '', `${ic('upload')}Upload to staging & preview`, 'pri')}` : ''}
+        <p class="sub">Folder: up to 1 GiB / 10,000 files. ZIP: 128 MiB compressed. Logs, history, executables and install metadata are excluded. Staging is allowed while MT5 runs and changes nothing.</p>`;
+    } else if (I.step === 'staging' || I.step === 'stopped') {
+      body = `<div class="blk"><div class="row" style="justify-content:space-between"><b>${I.step === 'stopped' ? 'Upload stopped' : 'Uploading to staging…'}</b><span class="sub">${I.progress}%</span></div>
+        <div class="bar" role="progressbar" aria-label="Staging progress" aria-valuenow="${I.progress}" aria-valuemin="0" aria-valuemax="100"><i style="width:${I.progress}%"></i></div>
+        <p class="sub">Files are checksummed as they upload. MT5 has not been changed.</p></div>
+        <div class="row">${I.step === 'staging' ? btn('stopupload', '', 'Stop upload') : ''}${btn('impcancel', '', 'Cancel staged import', 'ghost')}</div>`;
+    } else if (I.step === 'review' || I.step === 'applying') {
+      const conflicts = ENTRIES.filter((e) => e.conflict).length, excl = ENTRIES.filter((e) => e.ex).length, acc = ENTRIES.filter((e) => e.account).length;
+      const n = applyCount();
+      const stopped = S.term === 'stopped' || S.term === 'failed';
+      body = `<div class="sum"><span class="tag">${ENTRIES.length} files</span><span class="tag">${conflicts} already exist</span><span class="tag">${acc} account config</span><span class="tag">${excl} excluded</span></div>
+        <label class="opt def"><input type="checkbox" data-act="optaccount" data-k="optaccount|" ${I.account ? 'checked' : ''}><b>Restore uploaded Config, including account</b><span>${I.account ? 'Uploaded login, server and saved-password settings will replace this terminal’s. Passwords from another machine may not decrypt.' : 'Off (default): this terminal keeps its saved login.'}</span></label>
+        <label class="opt"><input type="checkbox" data-act="optoverwrite" data-k="optoverwrite|" ${I.overwrite ? 'checked' : ''}><b>Overwrite existing files</b><span>${I.overwrite ? 'Conflicts are replaced; originals are backed up first.' : 'Off: existing files are kept.'}</span></label>
+        <details class="fl"><summary>File preview (${ENTRIES.length})</summary><ul class="flist">${ENTRIES.map((e) => { const [a, t, why] = entryAction(e); return `<li><span class="p">${e.p}</span><span class="tag ${t}" title="${why || ''}">${a}</span></li>`; }).join('')}</ul></details>
+        <p class="sub">Profiles merge, not mirror: same-named chart profiles can mix old and new charts. Nothing is deleted.</p>
+        <div class="path"><div class="top">Destination</div><code>${PATH.datadir}</code></div>
+        ${stopped ? '' : `<div class="note warn">Stop the terminal before applying. Uploading did not change it. <div class="row" style="margin-top:6px">${btn('confirm', 'stop', `${ic('stop')}Stop terminal…`, 'sm danger', S.term !== 'running' ? 'disabled' : '')}</div></div>`}
+        <div class="row">${btn('confirm', 'apply', I.step === 'applying' ? '<span class="spin"></span>Applying…' : `Apply ${n} files`, 'pri', !stopped || I.step === 'applying' ? 'disabled' : '')}${btn('impcancel', '', 'Cancel staged import', 'ghost', I.step === 'applying' ? 'disabled' : '')}</div>`;
+    } else if (I.step === 'done') {
+      const R = I.result;
+      body = `<div class="note ok" role="status"><b>Import applied (simulated).</b> Applied ${R.applied}; kept ${R.kept}; excluded ${R.excluded}. ${R.account ? 'Account config replaced.' : 'Saved account kept.'}</div>
+        <div class="path"><div class="top">Backup</div><code>${PATH.imports}/backup-sim01-1</code></div>
+        <p>MT5 is still stopped. Check the result, then launch it yourself. No EA was compiled or attached.</p>
+        <div class="row">${S.term === 'running' ? '' : btn('launch', 'imp', `${ic('play')}Launch terminal`, 'pri', transitioning() ? 'disabled' : '')}${btn('impreset', '', 'Start another import')}</div>`;
+    }
+    return head('Import data folder', 'Complete terminal setup, staged and reviewed before anything changes.') + `<ol class="steps" aria-label="Import steps">${steps}</ol><div class="blk">${body}</div>${I.msg ? `<p class="sub" role="status">${I.msg}</p>` : ''}`;
+  }
+  function dSession() {
+    return head('Saved session', 'What survives a stop, restart or container recreation.') + `
+      <div class="path"><div class="top">Startup mode<span class="tag ok">Restore</span></div><b>Resume saved account and charts</b><code>MT5_SESSION_MODE=restore</code></div>
+      <div class="blk"><h3>KEPT ON THIS HOST'S DATA VOLUME</h3><ul class="checks yes">
+        <li>${ic('check')}<span>Wine prefix, registry and terminal data</span></li>
+        <li>${ic('check')}<span>Chart profiles and templates</span></li>
+        <li>${ic('check')}<span>Your login, if “Save password” is enabled in MT5</span></li></ul></div>
+      <div class="blk"><h3>WORTH KNOWING</h3><ul class="checks mind">
+        <li>${ic('info')}<span>Stop and Restart end the Wine session gracefully so MT5 can save state. Power loss can lose unsaved changes.</span></li>
+        <li>${ic('info')}<span>Recreate the container with the same data folder, or the session will not carry over.</span></li>
+        <li>${ic('info')}<span>Moving account files to another machine may need one fresh login. Saved passwords can be machine-bound.</span></li></ul></div>
+      <div class="path"><div class="top">Data volume</div><code>${PATH.data}</code></div>
+      <p class="sub">The launcher never asks for, stores or logs broker passwords.</p>`;
+  }
+  function dPaths() {
+    const rows = [['Data volume', 'data'], ['Wine prefix', 'prefix'], ['Terminal', 'terminal'], ['MT5 data folder', 'datadir'], ['EA upload target', 'experts'], ['Import staging and backups', 'imports'], ['Installer cache', 'installer']];
+    return head('Technical paths', 'Container paths, for logs and support.') + rows.map(([l, k]) => `<div class="path"><div class="top">${l}${btn('selpath', k, 'Select', 'sm ghost', `aria-label="Select ${l} path"`)}</div><code id="p-${k}">${PATH[k]}</code></div>`).join('');
+  }
+  function renderDrawer() {
+    const d = $('drawer');
+    if (!S.drawer) { d.hidden = true; d.innerHTML = ''; return; }
+    d.hidden = false;
+    const html = { status: dStatus, files: dFiles, import: dImport, session: dSession, paths: dPaths }[S.drawer]();
+    d.innerHTML = `<div class="dw" role="region" aria-labelledby="dwt">${html}</div>`;
+  }
+  function renderModal() {
+    const m = $('mbg');
+    if (!S.modal) { m.hidden = true; m.innerHTML = ''; return; }
+    const n = applyCount();
+    const M = {
+      stop: ['Stop the terminal?', ['EAs on charts stop running until you launch again.', 'MT5 closes gracefully so it can save account and chart state.', 'The Linux desktop stays available. Saved session stays on the volume.'], 'Stop terminal', 'danger'],
+      restart: ['Restart the terminal?', ['MT5 closes gracefully, then reopens its saved account and charts.', 'Running EAs stop and must re-attach; the journal is read again.', 'Heartbeat stays unverified either way.'], 'Restart terminal', 'pri'],
+      apply: ['Apply this import?', [`${n} files go to the MT5 data folder. Replaced files are backed up first.`, S.imp.account ? 'Uploaded Config will replace this terminal’s account, server and saved-password settings.' : 'This terminal’s saved account configuration is kept.', 'MT5 stays stopped afterwards; launch it yourself.'], `Apply ${n} files`, 'pri']
+    }[S.modal];
+    m.hidden = false;
+    m.innerHTML = `<div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="mt" aria-describedby="md">
+      <h2 id="mt">${ic('alert')}${M[0]}</h2><ul id="md">${M[1].map((x) => `<li>${x}</li>`).join('')}</ul>
+      <span class="simtag">Simulated action. Nothing is sent to a server.</span>
+      <div class="row">${btn('mcancel', '', 'Cancel', '')}${btn('mok', '', M[2], M[3])}</div></div>`;
+  }
+
+  let lastFocusKey = null;
+  function render() {
+    const a = document.activeElement;
+    const key = a && root.contains(a) ? a.dataset.k : null;
+    root.classList.toggle('focus', S.focus);
+    renderCmd(); renderAlert(); renderRail(); renderTool(); renderAct(); renderDrawer(); renderModal();
+    if (S.modal) {
+      const m = $('mbg');
+      if (!m.contains(document.activeElement)) m.querySelector('[data-act="mcancel"]').focus();
+    } else if (key) {
+      const el = root.querySelector(`[data-k="${CSS.escape(key)}"]`);
+      if (el && !el.disabled) el.focus();
+      else if (S.drawer) {
+        const h = $('drawer').querySelector('h2');
+        if (h) { h.tabIndex = -1; h.focus(); }
+      }
+    }
+  }
+
+  // actions
+  function setEaAfterLaunch() {
+    S.ea = 'unverified';
+    later(() => {
+      if (S.term !== 'running') return;
+      S.ea = S.scenario === 'failed' ? 'failed' : 'loaded';
+      log('info', S.ea === 'failed' ? 'Journal: SampleBridge_EA initialisation failed (sample)' : 'Journal: SampleBridge_EA attachment recorded on EURUSD,H1');
+      say('Journal read. Heartbeat still unverified.');
+    }, D() * 1.4);
+  }
+  function launch() {
+    if (S.imp.step === 'applying') return;
+    S.term = 'launching'; S.ea = 'none'; S.scenario = S.scenario === 'crash' ? 'normal' : S.scenario;
+    log('action', 'Launch requested (simulated)'); say('Launching terminal…');
+    later(() => { S.term = 'running'; log('info', 'terminal64.exe running; MT5 resuming saved session'); say('Terminal running. Waiting for journal evidence.'); setEaAfterLaunch(); }, D());
+  }
+  function stop() {
+    S.term = 'stopping'; log('action', 'Stop requested (simulated)'); say('Stopping terminal…');
+    later(() => { S.term = 'stopped'; S.ea = 'none'; log('info', 'Wine session ended cleanly; terminal stopped'); say('Terminal stopped. Desktop still available.'); }, D());
+  }
+  function restart() {
+    S.term = 'stopping'; log('action', 'Restart requested (simulated)'); say('Restarting: closing terminal…');
+    later(() => { S.term = 'launching'; S.ea = 'none'; log('info', 'Terminal closed; starting again'); say('Restarting: launching…'); }, D());
+    later(() => { S.term = 'running'; log('info', 'terminal64.exe running; MT5 resuming saved session'); say('Terminal running. Waiting for journal evidence.'); setEaAfterLaunch(); }, D() * 2);
+  }
+  let stageTimer = null;
+  function stage() {
+    const I = S.imp;
+    I.step = 'staging'; I.progress = 0; I.msg = '';
+    log('action', `Import staging started: ${ENTRIES.length} files (sample)`);
+    const tick = () => {
+      if (I.step !== 'staging') return;
+      I.progress = Math.min(100, I.progress + (rm.matches ? 50 : 10));
+      if (I.progress >= 100) {
+        I.step = 'review'; I.msg = 'Upload complete and verified. Review options; MT5 has not been changed.';
+        log('info', 'Import staged and checksums verified; awaiting review'); say('Staged import ready for review.');
+      } else stageTimer = later(tick, D() / 5);
+    };
+    stageTimer = later(tick, D() / 5);
+  }
+  function applyImport() {
+    const I = S.imp;
+    I.step = 'applying';
+    log('action', 'Import apply requested (simulated)'); say('Applying import…');
+    later(() => {
+      const acts = ENTRIES.map((e) => entryAction(e)[0]);
+      I.result = { applied: acts.filter((a) => a === 'Add' || a === 'Replace · backup').length, kept: acts.filter((a) => a.startsWith('Keep')).length, excluded: acts.filter((a) => a === 'Excluded').length, account: I.account };
+      I.step = 'done'; I.msg = '';
+      if (!S.files.list.includes('GridPilot.ex5')) S.files.list.push('GridPilot.ex5');
+      log('info', `Import applied: ${I.result.applied} files, backup written to ${PATH.imports}/backup-sim01-1`);
+      say('Import applied. Terminal left stopped.');
+    }, D() * 1.3);
+  }
+
+  function handle(act, arg, el) {
+    switch (act) {
+      case 'clipboard': S.drawer = 'files'; render(); $('vm-clipboard')?.focus(); return;
+      case 'vmfolder': S.vm.path = arg; S.vm.draft = arg; S.vm.staged = false; break;
+      case 'vmgo':
+      case 'vmpaste': {
+        let value = S.vm.draft.trim().replace(/\\/g, '/');
+        const prefix = 'C:/Program Files/MetaTrader 5/';
+        if (value.toLowerCase().startsWith(prefix.toLowerCase())) value = value.slice(prefix.length);
+        if (!value || value.startsWith('/') || value.includes(':') || value.split('/').includes('..')) { S.vm.message = 'Choose a destination inside the example MT5 data folder.'; break; }
+        S.vm.path = value; S.vm.draft = value; S.vm.staged = act === 'vmpaste';
+        S.vm.message = act === 'vmpaste' ? 'Two invented files staged for review. No real files were read, pasted or applied.' : 'Destination selected. Files pasted here would be staged for review.';
+        break;
+      }
+      case 'vmsend': S.vm.message = S.vm.text ? 'Text handoff simulated. Nothing was sent to MT5.' : 'Paste or type text in the box first.'; break;
+      case 'vmget': S.vm.text = 'Example text from the simulated desktop. This is not your real clipboard.'; S.vm.message = 'Sample text loaded; select it and use normal browser copy controls.'; break;
+      case 'vmselect': $('vm-clipboard')?.focus(); $('vm-clipboard')?.select(); return;
+      case 'drawer': {
+        if (arg === 'desktop') S.drawer = null;
+        else S.drawer = S.drawer === arg && el.classList.contains('rb') ? null : arg;
+        if (S.focus) S.focus = false;
+        break;
+      }
+      case 'close': { const was = S.drawer; S.drawer = null; render(); root.querySelector(`[data-k="rail|${was}"]`)?.focus(); return; }
+      case 'confirm': lastFocusKey = el.dataset.k; S.modal = arg; break;
+      case 'mcancel': S.modal = null; render(); restoreFocus(); return;
+      case 'mok': {
+        const m = S.modal; S.modal = null;
+        if (m === 'stop') stop(); else if (m === 'restart') restart(); else if (m === 'apply') applyImport();
+        render(); restoreFocus(); return;
+      }
+      case 'launch': launch(); break;
+      case 'scenario': {
+        S.scenario = arg; timers.forEach(clearTimeout); timers = [];
+        if (arg === 'crash') { S.term = 'failed'; S.ea = 'none'; log('warn', 'Terminal process disappeared (simulated crash)'); }
+        else { S.term = 'running'; S.ea = arg === 'normal' ? 'loaded' : arg; log(arg === 'normal' ? 'info' : 'warn', arg === 'removed' ? 'Journal: SampleBridge_EA removed from EURUSD,H1' : arg === 'failed' ? 'Journal: SampleBridge_EA initialisation failed (sample)' : 'Scenario reset to normal'); }
+        if (S.imp.step === 'applying') S.imp.step = 'review';
+        if (S.imp.step === 'staging') S.imp.step = 'stopped';
+        say(`Previewing scenario: ${el.textContent}.`);
+        break;
+      }
+      case 'ack': S.ea = 'unverified'; S.scenario = 'normal'; log('action', 'Deliberate EA removal acknowledged; heartbeat still unverified'); say('Removal acknowledged. No attachment claimed.'); break;
+      case 'scale': S.native = arg === 'native'; say(S.native ? '1:1 pixels. Scroll the desktop to pan.' : 'Desktop scaled to fit.'); break;
+      case 'kbd': S.kbd = !S.kbd; say(S.kbd ? 'Keyboard capture on (simulated). Esc releases.' : 'Keyboard capture off.'); break;
+      case 'reload': S.reloading = true; log('action', 'Desktop view reload (browser only)'); later(() => { S.reloading = false; say('Desktop view reconnected (simulated).'); }, D()); break;
+      case 'focusmode': S.focus = !S.focus; say(S.focus ? 'Focus mode. Esc or Exit focus to return.' : 'Focus mode off.'); break;
+      case 'acttoggle': S.actOpen = !S.actOpen; break;
+      case 'actfilter': S.actFilter = arg; break;
+      case 'pick': S.files.picked = SAMPLE_PICK.map((f) => ({ ...f })); S.files.msg = ''; break;
+      case 'unpick': S.files.picked.splice(Number(arg), 1); break;
+      case 'upload': {
+        const names = S.files.picked.map((f) => f.n);
+        S.files.uploading = true; S.files.msg = '';
+        later(() => {
+          S.files.uploading = false;
+          S.files.picked.filter((f) => f.to === 'Experts').forEach((f) => { if (!S.files.list.includes(f.n)) S.files.list.push(f.n); });
+          S.files.picked = [];
+          S.files.msg = `Uploaded ${names.join(', ')} (simulated). Not attached to any chart.`;
+          log('action', `EA upload: ${names.join(', ')}`); say('EA files uploaded (simulated).');
+        }, D());
+        break;
+      }
+      case 'source': S.imp.source = arg; S.imp.msg = ''; break;
+      case 'stage': stage(); break;
+      case 'stopupload': S.imp.step = 'stopped'; S.imp.msg = 'Upload stopped. Cancel the staged data to start again.'; log('warn', 'Import upload stopped by operator'); break;
+      case 'impcancel': S.imp = { step: 'select', source: null, progress: 0, overwrite: false, account: false, result: null, msg: 'Staged import cancelled. Terminal data was not changed.' }; log('action', 'Staged import cancelled'); break;
+      case 'impreset': S.imp = { step: 'select', source: null, progress: 0, overwrite: false, account: false, result: null, msg: '' }; break;
+      case 'optaccount': S.imp.account = el.checked; break;
+      case 'optoverwrite': S.imp.overwrite = el.checked; break;
+      case 'selpath': {
+        const c = $('p-' + arg); const r = document.createRange(); r.selectNodeContents(c);
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        say('Path selected. Press Ctrl/Cmd+C to copy.'); renderTool(); return;
+      }
+      default: return;
+    }
+    render();
+  }
+  function restoreFocus() {
+    const el = lastFocusKey && root.querySelector(`[data-k="${CSS.escape(lastFocusKey)}"]`);
+    if (el && !el.disabled) el.focus(); else root.querySelector('.acts button:not(:disabled)')?.focus();
+  }
+
+  root.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-act]');
+    if (!t || t.disabled || t.tagName === 'INPUT') return;
+    handle(t.dataset.act, t.dataset.arg || '', t);
+  });
+  root.addEventListener('change', (e) => {
+    const t = e.target.closest('input[data-act]');
+    if (t) handle(t.dataset.act, '', t);
+  });
+  root.addEventListener('input', (e) => {
+    if (e.target.id === 'vm-destination') S.vm.draft = e.target.value;
+    if (e.target.id === 'vm-clipboard') S.vm.text = e.target.value;
+  });
+  root.addEventListener('keydown', (e) => {
+    if (e.target.id === 'vm-destination' && e.key === 'Enter') { e.preventDefault(); handle('vmgo', '', e.target); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (S.modal) {
+      if (e.key === 'Escape') { e.preventDefault(); S.modal = null; render(); restoreFocus(); return; }
+      if (e.key === 'Tab') {
+        const f = [...$('mbg').querySelectorAll('button:not(:disabled)')];
+        const i = f.indexOf(document.activeElement);
+        if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+        else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+      }
+      return;
+    }
+    if (e.key !== 'Escape') return;
+    if (S.kbd) { S.kbd = false; say('Keyboard capture released.'); render(); }
+    else if (S.focus) { S.focus = false; render(); }
+    else if (S.drawer) handle('close', '', null);
+  });
+
+  // illustrative desktop drawing (deterministic, not market data)
+  (function draw() {
+    let grid = '';
+    for (let y = 230; y < 760; y += 90) grid += `<line class="d-grid" x1="384" y1="${y}" x2="1462" y2="${y}"/>`;
+    for (let x = 520; x < 1462; x += 160) grid += `<line class="d-grid" x1="${x}" y1="146" x2="${x}" y2="760"/>`;
+    grid += `<line class="d-ln" x1="1462" y1="146" x2="1462" y2="760"/>`;
+    for (let y = 230; y < 760; y += 90) grid += `<rect class="d-ph" x="1478" y="${y - 6}" width="60" height="12" rx="3"/>`;
+    $('grid').innerHTML = grid;
+    let seed = 11, y = 470, out = '';
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 64; i++) {
+      const x = 400 + i * 16.5;
+      const o = y; let c = y + (rnd() - 0.5) * 44 + Math.sin(i / 6) * 9;
+      c = Math.max(250, Math.min(700, c));
+      const hi = Math.min(o, c) - rnd() * 20, lo = Math.max(o, c) + rnd() * 20;
+      const up = c < o;
+      out += `<line class="c-w" x1="${x + 4.5}" y1="${hi.toFixed(1)}" x2="${x + 4.5}" y2="${lo.toFixed(1)}"/><rect class="${up ? 'c-up' : 'c-dn'}" x="${x}" y="${Math.min(o, c).toFixed(1)}" width="9" height="${Math.max(2, Math.abs(c - o)).toFixed(1)}"/>`;
+      y = c;
+    }
+    $('candles').innerHTML = out;
+    const syms = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'GBPJPY', 'AUDUSD', 'US500', 'BTCUSD', 'USDCHF'];
+    $('mw').innerHTML = syms.map((s, i) => `<text x="56" y="${208 + i * 30}">${s}</text><rect class="d-ph" x="200" y="${197 + i * 30}" width="70" height="12" rx="3"/><rect class="d-ph" x="290" y="${197 + i * 30}" width="70" height="12" rx="3"/>`).join('');
+  })();
+
+  S.scenario = 'normal';
+  rm.addEventListener?.('change', render);
+  render();
+})();
+</script>
+</body>
+</html>
