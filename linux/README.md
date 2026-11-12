@@ -295,6 +295,9 @@ For portable-style installs that require `/config` to select the saved login,
 the launcher uses a private UTF-16 copy of the persisted settings under
 `/data/cache/session-restore.ini`, with every `[StartUp]` section removed. The
 terminal's own configuration and account files are not rewritten by the launcher.
+If managed settings name an older account, recent successful authorisation entries
+in MT5's own journal select the last used login/server. Explicit old passwords are
+not transferred; authentication still depends on MT5's saved credentials.
 The full Wine prefix, registry, terminal data and HOME persist under the existing
 `MT5_DATA_DIR:/data` mount. Use the same host directory on container recreation;
 a Docker image alone does not contain your runtime account state. Enable

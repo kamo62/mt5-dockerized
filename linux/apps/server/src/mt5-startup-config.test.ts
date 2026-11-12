@@ -5,6 +5,7 @@ import {
   buildMt5StartupConfig,
   mt5StartupConfigFromEnv,
   writeMt5StartupFiles,
+  writeMt5RestoreFile,
 } from "./mt5-startup-config";
 
 function utf16(text: string): Buffer {
@@ -199,6 +200,26 @@ test("mt5StartupConfigFromEnv maps compose variables to startup options", () => 
       LinkCode: "OYW74CFC",
     },
   });
+});
+
+test("restore uses the last authorised account rather than stale managed login settings", async () => {
+  const root = join(process.env.TMPDIR ?? "/tmp", `mt5-last-account-${crypto.randomUUID()}`);
+  const terminal = join(root, "drive_c/Program Files/MetaTrader 5");
+  try {
+    mkdirSync(join(terminal, "Config"), { recursive: true });
+    mkdirSync(join(terminal, "Logs"), { recursive: true });
+    writeFileSync(join(terminal, "terminal64.exe"), "fixture");
+    const saved = utf16("[Common]\r\nLogin=111111\r\nServer=OldBroker\r\nPassword=must-not-transfer\r\n[StartUp]\r\nExpert=DoNotReplay\r\n");
+    writeFileSync(join(terminal, "Config/common.ini"), saved);
+    writeFileSync(join(terminal, "Logs/20261112.log"), utf16("AB\t0\t12:00:00\tNetwork\t'222222': authorized on LastBroker-Live\r\n"));
+    const result = await writeMt5RestoreFile(root, join(root, "cache"));
+    const generated = readFileSync(result!.path, "utf16le");
+    expect(generated).toContain("Login=222222");
+    expect(generated).toContain("Server=LastBroker-Live");
+    expect(generated).not.toContain("must-not-transfer");
+    expect(generated).not.toContain("DoNotReplay");
+    expect(readFileSync(join(terminal, "Config/common.ini")).equals(saved)).toBe(true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test("startup rejects missing experts and presets before changing account configuration", async () => {
