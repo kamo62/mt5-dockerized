@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import {
@@ -218,7 +218,15 @@ test("restore uses the last authorised account rather than stale managed login s
     expect(generated).toContain("Server=LastBroker-Live");
     expect(generated).not.toContain("must-not-transfer");
     expect(generated).not.toContain("DoNotReplay");
-    expect(readFileSync(join(terminal, "Config/common.ini")).equals(saved)).toBe(true);
+    const native = readFileSync(join(terminal, "Config/common.ini"), "utf16le");
+    expect(native).toContain("Login=111111");
+    expect(native).toContain("Password=must-not-transfer");
+    expect(native).not.toContain("DoNotReplay");
+    const backup = readdirSync(join(root, "cache")).find((name) => name.startsWith("common-before-restore-"))!;
+    expect(readFileSync(join(root, "cache", backup)).equals(saved)).toBe(true);
+    expect(statSync(join(root, "cache", backup)).mode & 0o777).toBe(0o600);
+    await writeMt5RestoreFile(root, join(root, "cache"));
+    expect(readdirSync(join(root, "cache")).filter((name) => name.startsWith("common-before-restore-")).length).toBe(1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

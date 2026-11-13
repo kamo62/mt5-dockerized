@@ -7,7 +7,7 @@ type Preview = {
   target: string;
   destination?: string;
   chunkBytes: number;
-  entries: { index: number; path: string; size: number; sha256: string; received: number; excluded?: string; conflict: boolean; account: boolean }[];
+  entries: { index: number; path: string; size: number; sha256: string; received: number; excluded?: string; conflict: boolean; account: boolean; requiresStop?: boolean }[];
 };
 type ImportInfo = { active?: string; recoveryRequired: boolean; target?: string; sessionMode: "restore" | "managed" };
 export type ImportTransfer = { id: string; files: SelectedImportFile[]; destination: string };
@@ -173,7 +173,7 @@ export function DataImportPanel({ stopped, disabled, onApplied, transfer, onTran
   }
 
   async function apply() {
-    if (!preview || !stopped || disabled || info?.recoveryRequired) return;
+    if (!preview || !stopped && needsStop || disabled || info?.recoveryRequired) return;
     const result = await request<{ message: string; backup: string; applied: number; skipped: number }>(`/api/mt5/imports/${preview.id}/apply`, { overwrite, restoreAccount });
     setMessage(`${result.message} Applied ${result.applied}; skipped ${result.skipped}. Backup: ${result.backup}`);
     setPreview(undefined);
@@ -184,11 +184,15 @@ export function DataImportPanel({ stopped, disabled, onApplied, transfer, onTran
 
   const accepted = preview?.entries.filter((entry) => !entry.excluded && (!entry.account || restoreAccount) && (!entry.conflict || overwrite)) ?? [];
   const complete = accepted.length > 0 && accepted.every((entry) => entry.received === entry.size && Boolean(entry.sha256));
+  const needsStop = accepted.some((entry) => entry.requiresStop !== false);
+  const hasAccountFiles = preview?.entries.some((entry) => entry.account && !entry.excluded);
+  const hasProfileFiles = preview?.entries.some((entry) => /^(?:MQL5\/)?Profiles\//i.test(entry.path) && !entry.excluded);
   return (
     <section className="panel-section import-panel" aria-label="Import MT5 data folder">
       <h3>{destination !== undefined || preview?.destination !== undefined ? "Destination transfer" : "Import MT5 data folder"}</h3>
       <ol className="import-steps" aria-label="Import steps"><li aria-current={!selection.length && !active ? "step" : undefined}>Select</li><li aria-current={uploading || selection.length > 0 && !preview ? "step" : undefined}>Stage</li><li aria-current={preview && !uploading ? "step" : undefined}>Review</li><li>Apply</li></ol>
-      <p className="upload-note">Select the folder opened by MT5 → File → Open Data Folder, or a ZIP of it. Subfolders are preserved. No automatic stop, launch or EA attachment.</p>
+      {!active && <>
+      <p className="upload-note">Select the folder opened by MT5 → File → Open Data Folder, or a ZIP of it. New MQL5 files can be copied while MT5 runs, then discovered with Navigator → Refresh. Account/profile changes and replacements require a stopped terminal. No automatic stop, launch or EA attachment.</p>
       <label className="upload-note">Data folder
         <input aria-label="MT5 data folder" className="file-input" type="file" multiple {...{ webkitdirectory: "" }} disabled={busy || Boolean(active) || disabled || !info || info.recoveryRequired} onChange={(event) => { clearSelection(); setSelection(folderFiles(event.target.files ?? [])); setMessage(undefined); event.target.value = ""; }} />
       </label>
@@ -200,28 +204,32 @@ export function DataImportPanel({ stopped, disabled, onApplied, transfer, onTran
         }} />
       </label>
       <p className="upload-note">{selection.length} files selected. Folder limit: 1 GiB / 10,000 files. Logs, history, terminal executables and installation metadata are excluded.</p>
-      {(preview?.destination ?? destination) !== undefined && <p className="note">Transfer destination: <code>MT5 / {preview?.destination ?? destination}</code>. Selected folder names are preserved beneath this path. Choose a full data folder or ZIP above to start a whole-folder restore after cancelling any staged import.</p>}
+      </>}
+      {(preview?.destination ?? destination) !== undefined && <p className="note">Transfer destination: <code>MT5 / {preview?.destination ?? destination}</code>. Selected folder names are preserved beneath this path. {active && "Cancel this staged transfer to choose a different source."}</p>}
       {!active && <button type="button" className="secondary-button" disabled={busy || !selection.length || disabled || !info || info.recoveryRequired} onClick={() => void perform(() => stage())}>Upload to staging &amp; preview</button>}
       {uploading && <><progress aria-label="Import progress" max="100" value={progress} /><p className="upload-note" role="status">Staging {progress}% · SHA-256 verified uploads</p><button type="button" className="secondary-button" onClick={() => { cancelled.current = true; upload.current?.abort(); }}>Stop upload</button></>}
       {busy && !uploading && <p className="upload-note" role="status">Import operation in progress…</p>}
-      {(preview?.target ?? info?.target) && <p className="upload-note">Data folder: <code>{preview?.target ?? info?.target}</code></p>}
-      {info?.sessionMode === "managed" && <p className="upload-note">Managed startup is enabled. Compose settings can replace imported chart/preset settings on launch. Use MT5_SESSION_MODE=restore to resume the saved session.</p>}
+      {(preview?.target ?? info?.target) && <details><summary>Target data folder</summary><code>{preview?.target ?? info?.target}</code></details>}
+      {info?.sessionMode === "managed" && <p className="upload-note">Explicit startup settings can replace imported chart/preset choices on launch. Choose Restore last session in Session to follow saved chart changes.</p>}
       {!info && <button type="button" disabled={busy || disabled} onClick={() => void perform(refresh)}>Retry import status</button>}
       {active && !preview && <button type="button" className="secondary-button" disabled={busy || disabled} onClick={() => void perform(async () => { setPreview(await request<Preview>(`/api/mt5/imports/${active}`)); setOverwrite(false); setRestoreAccount(false); })}>Review staged import</button>}
       {preview && <>
         <p className="upload-note">{preview.entries.length} files; {preview.entries.filter((entry) => entry.conflict).length} existing paths; {preview.entries.filter((entry) => entry.excluded).length} excluded.</p>
-        <label className="import-option"><input type="checkbox" checked={overwrite} disabled={busy} onChange={(event) => setOverwrite(event.target.checked)} />Overwrite existing files (backed up first)</label>
-        <label className="import-option"><input type="checkbox" checked={restoreAccount} disabled={busy} onChange={(event) => setRestoreAccount(event.target.checked)} />Restore uploaded Config, including account settings</label>
-        <p className="upload-note">Leave account restore off to keep this terminal’s saved login. Passwords copied from another machine may not decrypt. Keep MT5’s “Save password” enabled.</p>
-        <p className="upload-note">Profiles are merged, not mirrored. A profile containing both new and existing chart files can restore a mixed layout; review its paths before applying.</p>
+        {preview.entries.some((entry) => entry.conflict) && <label className="import-option"><input type="checkbox" checked={overwrite} disabled={busy} onChange={(event) => setOverwrite(event.target.checked)} />Overwrite existing files (backed up first)</label>}
+        {hasAccountFiles ? <>
+          <label className="import-option"><input type="checkbox" checked={restoreAccount} disabled={busy} onChange={(event) => setRestoreAccount(event.target.checked)} />Restore uploaded Config, including account settings</label>
+          <p className="upload-note">Leave account restore off to keep this terminal’s saved login. Passwords copied from another machine may not decrypt. Keep MT5’s “Save password” enabled.</p>
+        </> : <p className="upload-note">No account configuration is included. This terminal’s saved login is preserved.</p>}
+        {hasProfileFiles && <p className="upload-note">Profiles are merged, not mirrored. A profile containing both new and existing chart files can restore a mixed layout; review its paths before applying.</p>}
         <details><summary>File preview</summary><ul className="import-file-list">{preview.entries.map((entry) => <li key={entry.index}><code>{entry.path}</code> · {entry.size} bytes · {entry.excluded ?? (entry.account && !restoreAccount ? "preserve current account" : entry.conflict && !overwrite ? "keep existing" : entry.received !== entry.size || !entry.sha256 ? "incomplete / checksum pending" : entry.conflict ? "replace with backup" : "add")}</li>)}</ul></details>
-        {!stopped && <p className="note">Stop MT5 from the command bar before applying. Uploading alone does not change it.</p>}
-        <button type="button" className="secondary-button" disabled={busy || disabled || !stopped || !complete || info?.recoveryRequired} onClick={() => setConfirmApply(true)}>Apply {accepted.length} files (keep MT5 stopped)</button>
+        {!stopped && needsStop && <p className="note">This selection replaces existing files or changes account/chart state. Stop MT5 before applying it.</p>}
+        {!stopped && !needsStop && accepted.length > 0 && <p className="note">These are new MQL5 files only. MT5 can stay running. Use Navigator → Refresh afterwards; this does not reload an already attached EA.</p>}
+        <button type="button" className="secondary-button" disabled={busy || disabled || !stopped && needsStop || !complete || info?.recoveryRequired} onClick={() => setConfirmApply(true)}>Apply {accepted.length} files {stopped ? "(keep MT5 stopped)" : needsStop ? "(requires stopped MT5)" : "(keep MT5 running)"}</button>
       </>}
       {active && <button type="button" className="secondary-button" disabled={busy || disabled || info?.recoveryRequired} onClick={() => void perform(async () => { await request(`/api/mt5/imports/${active}/cancel`, {}); setPreview(undefined); clearSelection(); setProgress(0); setMessage("Staged import cancelled. Terminal data was not changed."); await refresh(); })}>Cancel staged import</button>}
       {info?.recoveryRequired && <><p role="alert" className="note">An interrupted import must be recovered before MT5 can launch.</p><button type="button" className="secondary-button" disabled={busy || disabled || !stopped} onClick={() => void perform(async () => { const result = await request<{ message: string }>("/api/mt5/imports/recover", {}); setMessage(result.message); setPreview(undefined); clearSelection(); await refresh(); onApplied(); })}>Recover previous data</button></>}
       {message && <p role="status" className="upload-note">{message}</p>}
-      {confirmApply && preview && <ConfirmDialog title="Apply this import?" confirmLabel={`Apply ${accepted.length} files`} disabled={busy || disabled || !stopped || !complete || info?.recoveryRequired} onCancel={() => setConfirmApply(false)} onConfirm={() => { setConfirmApply(false); void perform(apply); }}><p>Destination: <code>{preview.target}{preview.destination ? `/${preview.destination}` : ""}</code></p><p>{restoreAccount ? "Uploaded Config may replace the current account, server and saved-password settings." : "The current account configuration will be preserved."}</p><p>{overwrite ? "Existing files are backed up before replacement." : "Existing files will be kept."} MT5 stays stopped afterwards. Launch it yourself after checking the result.</p></ConfirmDialog>}
+      {confirmApply && preview && <ConfirmDialog title="Apply this import?" confirmLabel={`Apply ${accepted.length} files`} disabled={busy || disabled || !stopped && needsStop || !complete || info?.recoveryRequired} onCancel={() => setConfirmApply(false)} onConfirm={() => { setConfirmApply(false); void perform(apply); }}><p>Destination: <code>{preview.target}{preview.destination ? `/${preview.destination}` : ""}</code></p><p>{restoreAccount ? "Uploaded Config may replace the current account, server and saved-password settings." : "The current account configuration will be preserved."}</p><p>{overwrite ? "Existing files are backed up before replacement." : "Existing files will be kept."} {stopped ? "MT5 stays stopped. Launch it yourself when ready." : "MT5 keeps running. Use Navigator → Refresh to discover new files. No EA is attached or reinitialised by this action."}</p></ConfirmDialog>}
     </section>
   );
 }

@@ -164,12 +164,14 @@ configured via `MT5_DATA_DIR`.
 
 ### Control Room files and clipboard
 
-The desktop stays mounted while you switch contextual drawers. The command bar
-shows terminal process state, configured-EA journal evidence and an explicitly
-unverified heartbeat separately. Stop and Restart ask for confirmation; reloading
-the desktop view does not restart MT5. Focus hides tools without disconnecting
-the desktop. Scaling and remote keyboard controls remain inside noVNC, or use
-**New tab** for its full interface. Activity is collapsed by default.
+The desktop stays mounted while you switch Desktop, Files and Session. The command
+bar shows terminal process state and configured-EA journal evidence separately;
+Diagnostics holds heartbeat limitations and technical paths. Stop and Restart ask
+for confirmation; reloading the desktop view does not restart MT5. **Full screen**
+requests browser fullscreen, with an explicitly labelled expanded-view fallback
+if unavailable or denied. Escape exits either view. Scaling and remote keyboard
+controls remain inside noVNC, or use **New tab** for its full interface. Activity
+is collapsed by default.
 
 **Files** browses only the active MT5 data folder. Paste a relative destination
 such as `MQL5/Experts/MyEA`, or that folder's absolute Linux/Windows path. Folder
@@ -179,13 +181,37 @@ locations are browse-only; this is not a host filesystem or shell console.
 
 Choose files/folders, drop them or paste file data when the browser exposes it.
 Selection alone does not upload; **Stage to destination & review**, an explicit
-drop or file paste stages the transfer and opens Import. The pasted folder name
+drop or file paste stages the transfer and opens Files > Transfers. The pasted folder name
 is retained below the chosen destination. If the browser only provides path text,
 use Choose folder instead: a path pasted from your computer cannot grant the
 browser filesystem access. Config destinations still require explicit account
 restore; account protection, checksum, conflict, backup and stopped-terminal
 checks are unchanged. Existing staged imports must be reviewed or cancelled
 before starting another transfer.
+
+**Session** selects the next-launch policy. Restore last session is the default.
+Custom startup selects either an existing MT5 profile (for multiple charts/EAs)
+or one exact broker symbol, timeframe and optional compiled EA/preset. These are
+alternatives, not two overlapping autoload mechanisms. The chosen compiled EA,
+preset and profile are validated as existing, confined, non-symlink paths.
+Custom startup applies deliberately on each launch; use Restore to follow manual
+chart changes instead. No broker password or trading-permission field is exposed.
+Settings are private at `/data/control-room/startup.json`. The generated INI
+preview omits account data; the actual launch copy is private. Save never restarts
+MT5, attaches a program or changes the running terminal's reported mode. Saved
+Control Room settings override environment startup settings only on the next
+launch, including configured auto-launch on boot. Launching an already-running
+terminal is idempotent and never restarts it to apply settings. Corrupt saved settings fail visibly on a cold launch instead of silently
+falling back to old autoload. Legacy native autoload is backed up and removed
+before a cold launch, not hot-edited while MT5 owns its configuration.
+If no Control Room choice has been saved, explicit legacy managed environment
+configuration keeps its existing permission-changing behaviour. Session warns
+about this and distinguishes its preview of a saved Control Room policy from the
+currently effective container policy. Startup choices and legacy-removal status
+refresh when Session opens and after file/runtime changes, preserving unsaved
+form edits. Files shortcuts use `MQL5/Profiles/Charts` and `MQL5/Presets`, matching
+the native startup paths; older root-level folders remain manually browseable
+but are not silently moved or treated as active MT5 profiles.
 
 **Clipboard** is a manual text bridge, not a file clipboard. Send updates the
 desktop's X11 CLIPBOARD selection (Wine maps it to Windows); click in MT5 and use
@@ -240,7 +266,10 @@ If the terminal data folder is missing, the upload button cannot resolve a
 target yet. Launch MT5 once from the control UI, let MetaTrader finish creating
 its `MQL5/Experts` folders, then retry the upload. After that first run, the
 upload button should work normally and show the detected `Target:` path.
-Restart MT5 after uploading compiled EAs if the Navigator does not refresh.
+Right-click Expert Advisors in MT5's Navigator and choose **Refresh** to discover
+new files. This is not the same as reinitialising an already attached EA. An
+in-use binary may need a deliberate detach/re-attach at a safe time; discovering
+new files does not require restarting the whole terminal.
 
 ### Data-folder imports
 
@@ -256,8 +285,10 @@ data, presets, profiles and templates. Selecting `MQL5` itself also works.
 3. Leave **Restore uploaded Config** off to keep this terminal's saved account.
    Enable it only when deliberately restoring the source terminal's configuration,
    which can replace account, server and saved-password settings.
-4. Stop MT5 explicitly before applying. Applying leaves MT5 stopped; launch it
-   yourself after checking the import result. No EA is compiled or auto-attached.
+4. New MQL5 files can be applied while MT5 keeps running. Use Navigator → Refresh
+   afterwards. Any existing-file replacement or account/profile/template restore
+   requires MT5 to be stopped explicitly; that apply leaves it stopped. Nothing
+   compiles, attaches or reinitialises an EA automatically.
 
 Uploads use 4 MiB requests so large folders do not require one oversized proxy
 request. Folder imports accept up to 10,000 files and 1 GiB of accepted contents.
@@ -289,12 +320,16 @@ to avoid unintentionally mixing existing and imported charts.
 ### Resume the last account and charts
 
 `MT5_SESSION_MODE=restore` is the default from version 3. It starts the existing
-terminal without rewriting `common.ini`, generating presets or replaying the
+terminal without overriding account/profile settings, generating presets or replaying the
 Compose `[StartUp]` block. MT5 restores its own saved account and chart profile.
 For portable-style installs that require `/config` to select the saved login,
 the launcher uses a private UTF-16 copy of the persisted settings under
 `/data/cache/session-restore.ini`, with every `[StartUp]` section removed. The
-terminal's own configuration and account files are not rewritten by the launcher.
+legacy `[StartUp]` directives are also removed from native `common.ini` before a
+cold launch, after an exact private backup under `/data/cache/common-before-restore-*.ini`.
+Account settings, trading permissions, chart files and EA inputs are otherwise
+left alone. Removing an autoload directive does not remove a chart that was
+already saved in the active profile.
 If managed settings name an older account, recent successful authorisation entries
 in MT5's own journal select the last used login/server. Explicit old passwords are
 not transferred; authentication still depends on MT5's saved credentials.
@@ -480,6 +515,8 @@ POST /api/mt5/imports/recover
 POST /api/mt5/expert/acknowledge-removals
 GET  /api/mt5/files?path=<relative-or-active-data-folder-path>
 GET  /api/desktop/clipboard
+GET  /api/mt5/startup
+POST /api/mt5/startup
 POST /api/desktop/clipboard/read
 POST /api/desktop/clipboard/write
 ```

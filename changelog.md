@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.1.0 - 2026-11-13 (Minor)
+
+Release impact: Minor because Control Room adds persistent next-launch startup
+settings and real fullscreen, alongside restore-mode and file-copy corrections.
+
+- Add a structured Session startup editor: restore the saved session, use an
+  existing profile, or configure one EA/chart. Saving does not restart MT5,
+  attach an EA or enable algorithmic trading/DLL/WebRequest permissions.
+- Simplify primary navigation to Desktop, Files and Session; group transfer
+  review under Files and put evidence/paths in secondary diagnostics.
+- Request real browser fullscreen and track exit/Escape. Allow noVNC's own
+  fullscreen; retain an honestly labelled expanded-view fallback.
+- Keep Launch idempotent for a running terminal, including unreadable future
+  settings; refresh startup choices without discarding drafts, match nested EA
+  journal names, and bring staged transfer review ahead of file selection.
+
+- Back up and remove obsolete managed `[StartUp]` sections from native config
+  before a restore-mode cold launch; saved chart profiles remain authoritative.
+- Permit new MQL5 additions without stopping MT5. Replacements and account/chart
+  changes retain the stopped-terminal guard. Use atomic no-clobber installs and
+  ownership-aware recovery so concurrent native file creation is not overwritten.
+- Preserve existing EA-health evidence when copying files into a running terminal.
+- Replace restart-for-discovery guidance with MT5 Navigator → Refresh, while
+  distinguishing discovery from deliberately reloading an attached EA.
+
 ## 3.0.0 - 2026-11-12 (Major)
 
 Release impact: Major because startup now defaults to restoring MT5's saved

@@ -199,6 +199,16 @@ const server = Bun.serve({
         return jsonResponse(await manager.getExpertsInfo());
       }
 
+      if (url.pathname === "/api/mt5/startup" && request.method === "GET") {
+        if (request.headers.get(ACTION_HEADER) !== "1") return jsonResponse({ error: `Missing ${ACTION_HEADER}: 1 header.` }, 403);
+        return jsonResponse(await manager.getStartupSettings());
+      }
+      if (url.pathname === "/api/mt5/startup" && request.method === "POST") {
+        let input: unknown;
+        try { input = await request.json(); } catch { return jsonResponse({ error: "Invalid startup settings JSON." }, 400); }
+        return jsonResponse(await manager.saveStartupSettings(input));
+      }
+
       if (url.pathname === "/api/mt5/files" && request.method === "GET") {
         if (request.headers.get(ACTION_HEADER) !== "1") return jsonResponse({ error: `Missing ${ACTION_HEADER}: 1 header.` }, 403);
         const path = url.searchParams.get("path") ?? "";

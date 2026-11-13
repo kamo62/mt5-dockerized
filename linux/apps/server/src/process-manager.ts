@@ -30,8 +30,10 @@ import {
   mt5StartupConfigFromEnv,
   writeMt5StartupFiles,
   writeMt5RestoreFile,
+  writeCustomStartupFile,
   type Mt5StartupConfig,
 } from "./mt5-startup-config";
+import { STARTUP_PERIODS, StartupControlStore, type StartupSettings } from "./startup-control";
 
 const defaultMt5Url =
   "https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe";
@@ -146,13 +148,15 @@ export class Mt5ProcessManager {
   private mt5State: Mt5ProcessState = "idle";
   private lastError?: string;
   private installPromise?: Promise<void>;
-  private startupApplied = false;
   private reconciling = false;
   private reconcileFailure = false;
   private lifecycleGeneration = 0;
   private expertMonitor?: ExpertLogMonitor;
   private readonly imports: DataImportStore;
-  private readonly sessionMode: "restore" | "managed";
+  private sessionMode: "restore" | "managed";
+  private readonly environmentSessionMode: "restore" | "managed";
+  private readonly startupControl: StartupControlStore;
+  private monitoredExpertName?: string;
   private importApplying = false;
 
   constructor(options: ManagerOptions = {}) {
@@ -161,6 +165,8 @@ export class Mt5ProcessManager {
     const mode = process.env.MT5_SESSION_MODE ?? "restore";
     if (mode !== "restore" && mode !== "managed") throw new Error("MT5_SESSION_MODE must be restore or managed.");
     this.sessionMode = mode;
+    this.environmentSessionMode = mode;
+    this.startupControl = new StartupControlStore(this.paths.dataDir, this.paths.winePrefix);
     this.display = options.display ?? process.env.DISPLAY_ID ?? ":99";
     this.pulseServer = this.resolvePulseServer(options.pulseServer);
     this.autoLaunch =
@@ -176,6 +182,7 @@ export class Mt5ProcessManager {
       process.env.WEBVIEW2_INSTALLER_URL ||
       defaultWebViewUrl;
     this.startupConfig = mt5StartupConfigFromEnv(process.env);
+    this.monitoredExpertName = this.startupConfig.enabled ? this.startupConfig.expertName : undefined;
     this.wineBootTimeoutMs = readTimeoutMs(
       "MT5_WINEBOOT_TIMEOUT_MS",
       DEFAULT_WINE_BOOT_TIMEOUT_MS,
@@ -271,25 +278,19 @@ export class Mt5ProcessManager {
     this.lifecycleGeneration += 1;
     this.mt5State = "launching";
     try {
-      if (await this.imports.pending()) throw new Error("An interrupted data import needs recovery. Use Recover import before launching MT5.");
       if (this.processes.has("mt5") || (await this.isMt5Running())) {
-        // Startup config is applied through MT5's `/config:` launch flag, so a
-        // terminal that is already running has not seen this boot's [StartUp].
-        // Restart once to apply it, then leave repeated launches idempotent.
-        if (this.sessionMode === "managed" && this.startupConfig.enabled && !this.startupApplied) {
-          this.log(
-            "MT5 is running without the configured startup state; restarting to apply it.",
-          );
-          await this.stopOnce();
-        } else {
-          this.mt5State = "running";
-          this.lastError = undefined;
-          this.reconcileFailure = false;
-          await this.monitorExpert(true);
-          this.log("MT5 is already running.");
-          return this.getState();
-        }
+        // Launch is idempotent. Future startup choices (including malformed
+        // files) must not stop or misreport an already running terminal.
+        this.mt5State = "running";
+        this.lastError = undefined;
+        this.reconcileFailure = false;
+        await this.monitorExpert(true);
+        this.log("MT5 is already running. Startup choices apply only to a later cold launch.");
+        return this.getState();
       }
+      const savedStartup = await this.startupControl.load();
+      const launchMode = savedStartup ? savedStartup.mode === "custom" ? "managed" : "restore" : this.environmentSessionMode;
+      if (await this.imports.pending()) throw new Error("An interrupted data import needs recovery. Use Recover import before launching MT5.");
 
       this.lastError = undefined;
       await this.ensureDataDirectories();
@@ -306,12 +307,20 @@ export class Mt5ProcessManager {
           `Audio driver setup skipped: ${error instanceof Error ? error.message : "unknown error"}.`,
         );
       }
-      const startupFiles = this.sessionMode === "managed" ? await writeMt5StartupFiles(
+      const custom = savedStartup?.mode === "custom" ? await this.startupControl.validated(savedStartup) : undefined;
+      const customFile = custom ? await writeCustomStartupFile(this.paths.winePrefix, this.paths.cacheDir, custom) : undefined;
+      const startupFiles = !savedStartup && launchMode === "managed" ? await writeMt5StartupFiles(
         this.paths.winePrefix,
         this.startupConfig,
       ) : undefined;
-      const restoreFile = this.sessionMode === "restore" ? await writeMt5RestoreFile(this.paths.winePrefix, this.paths.cacheDir) : undefined;
-      if (this.sessionMode === "restore") this.log("Resuming MT5's saved account and chart profile without rewriting startup configuration.");
+      const restoreFile = launchMode === "restore" ? await writeMt5RestoreFile(this.paths.winePrefix, this.paths.cacheDir) : undefined;
+      this.sessionMode = launchMode;
+      // Environment-only installs retain their configured journal subscription
+      // in restore mode. A saved UI policy replaces that legacy subscription.
+      this.monitoredExpertName = savedStartup ? custom?.expert || undefined : this.startupConfig.enabled ? this.startupConfig.expertName : undefined;
+      this.expertMonitor = undefined;
+      if (launchMode === "restore") this.log("Resuming the saved account and profile; obsolete native EA autoload directives are backed up and removed.");
+      if (customFile) this.log("Using the saved Control Room custom startup definition. Existing trading permissions are unchanged.");
       await this.monitorExpert(false);
       if (startupFiles?.commonIniPath) {
         this.log(`Updated MT5 common.ini: ${startupFiles.commonIniPath}.`);
@@ -321,9 +330,8 @@ export class Mt5ProcessManager {
       }
       this.startProcess(
         "mt5",
-        buildMt5LaunchCommand(executable, startupFiles?.commonIniWindowsPath ?? restoreFile?.windowsPath),
+        buildMt5LaunchCommand(executable, customFile?.windowsPath ?? startupFiles?.commonIniWindowsPath ?? restoreFile?.windowsPath),
       );
-      this.startupApplied = true;
       this.mt5State = "running";
       this.reconcileFailure = false;
       this.log("MT5 terminal launched.");
@@ -391,7 +399,6 @@ export class Mt5ProcessManager {
     }
     this.mt5State = "idle";
     this.lastError = undefined;
-    this.startupApplied = false;
     this.expertMonitor = undefined;
     this.reconcileFailure = false;
     this.log("MT5 terminal stopped.");
@@ -413,6 +420,27 @@ export class Mt5ProcessManager {
 
   async getImportInfo() {
     return { ...await this.imports.info(), target: findMt5TerminalDataRoot(this.paths.winePrefix), sessionMode: this.sessionMode };
+  }
+
+  private startupFallback(): StartupSettings {
+    return {
+      mode: this.environmentSessionMode === "managed" ? "custom" : "restore",
+      expert: this.environmentSessionMode === "managed" ? this.startupConfig.expertName ?? "" : "",
+      symbol: this.environmentSessionMode === "managed" ? this.startupConfig.startupSymbol ?? "" : "",
+      period: STARTUP_PERIODS.includes(this.startupConfig.startupPeriod as StartupSettings["period"]) ? this.startupConfig.startupPeriod as StartupSettings["period"] : "H1",
+      preset: this.environmentSessionMode === "managed" ? this.startupConfig.presetFilename ?? "" : "",
+      profile: "",
+    };
+  }
+
+  getStartupSettings() { return this.startupControl.describe(this.startupFallback()); }
+
+  saveStartupSettings(input: unknown) {
+    return this.runLifecycle(async () => {
+      await this.startupControl.save(input);
+      this.log("Startup choice saved for the next launch. The running terminal and EA attachments were not changed.");
+      return this.getStartupSettings();
+    });
   }
 
   async listFiles(path: string) {
@@ -437,13 +465,15 @@ export class Mt5ProcessManager {
     return this.runLifecycle(async () => {
       this.importApplying = true;
       try {
-        if (this.processes.has("mt5") || await this.isMt5Running()) throw new Error("Stop MT5 explicitly before applying a data import. The importer will not stop or restart it for you.");
+        const running = this.processes.has("mt5") || await this.isMt5Running();
         const root = findMt5TerminalDataRoot(this.paths.winePrefix);
         if (!root) throw new Error("MT5 data folder was not found.");
-        const result = await this.imports.apply(id, root, options);
-        this.expertMonitor = undefined;
-        this.lastError = undefined;
-        this.log(`Data-folder import applied (${result.applied} files). Backup: ${result.backup}. MT5 remains stopped.`);
+        const result = await this.imports.apply(id, root, options, running);
+        if (!running) {
+          this.expertMonitor = undefined;
+          this.lastError = undefined;
+        }
+        this.log(`Data-folder import applied (${result.applied} files). Backup: ${result.backup}. ${running ? "MT5 kept running; use Navigator > Refresh." : "MT5 remains stopped."}`);
         return result;
       } finally { this.importApplying = false; }
     });
@@ -688,9 +718,8 @@ export class Mt5ProcessManager {
         } else if (this.autoLaunch && !this.processes.has("mt5")) {
           this.log("Unattended install finished; scheduling automatic launch.");
           setTimeout(() => {
-            // launchOnce handles the case where the installer left the
-            // terminal running: it restarts once to apply [StartUp] and stays
-            // idempotent if a manual launch already did so.
+            // Adopt a terminal left running by the installer. Startup choices
+            // wait for a later cold launch; auto-launch never forces a restart.
             void this.launch().catch((error) => this.captureError(error));
           }, readDelayMs("AUTO_LAUNCH_DELAY_MS", 2500));
         }
@@ -851,11 +880,11 @@ export class Mt5ProcessManager {
   }
 
   private async monitorExpert(adopting: boolean): Promise<void> {
-    if (!this.startupConfig.enabled || !this.startupConfig.expertName) return;
+    if (!this.monitoredExpertName) return;
     if (adopting && this.expertMonitor) return;
     const root = findMt5TerminalDataRoot(this.paths.winePrefix);
     if (!root) throw new Error("MT5 data folder for EA log monitoring was not found.");
-    this.expertMonitor = await ExpertLogMonitor.create(root, this.startupConfig.expertName, adopting);
+    this.expertMonitor = await ExpertLogMonitor.create(root, this.monitoredExpertName, adopting);
   }
 
   private markIntentionalStop(name: string): void {

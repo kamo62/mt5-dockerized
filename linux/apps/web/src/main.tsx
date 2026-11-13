@@ -11,8 +11,8 @@ import {
   Play,
   RefreshCcw,
   RotateCcw,
-  Square,
   ShieldCheck,
+  Square,
   Terminal,
   Upload,
   X,
@@ -24,6 +24,7 @@ import { DataImportPanel, type ImportState, type ImportTransfer } from "./DataIm
 import { FilesPanel, type FilesListing } from "./FilesPanel";
 import { ClipboardPanel } from "./ClipboardPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { StartupPanel } from "./StartupPanel";
 import type { SelectedImportFile } from "./import-files";
 
 type Mt5State =
@@ -68,7 +69,7 @@ type ExpertsInfo = {
 };
 
 type PendingAction = "install" | "launch" | "stop" | "restart" | "acknowledge";
-type Drawer = "evidence" | "files" | "clipboard" | "import" | "session" | "paths";
+type Drawer = "files" | "clipboard" | "session" | "diagnostics";
 
 const emptyStatus: Mt5Status = {
   desktop: "starting",
@@ -195,7 +196,7 @@ function DrawerSection({ name, title, description, active, onClose, children }: 
   name: Drawer; title: string; description: string; active?: Drawer; onClose: () => void; children: React.ReactNode;
 }) {
   return <section className="drawer-section" id={`drawer-${name}`} hidden={active !== name} aria-labelledby={`heading-${name}`}>
-    <header className="drawer-heading"><div><h2 id={`heading-${name}`}>{title}</h2><p>{description}</p></div><button type="button" className="icon-button" aria-label={`Close ${title}`} onClick={onClose}><X size={17} /></button></header>
+    <header className="drawer-heading"><div><h2 id={`heading-${name}`} tabIndex={-1}>{title}</h2><p>{description}</p></div><button type="button" className="icon-button" aria-label={`Close ${title}`} onClick={onClose}><X size={17} /></button></header>
     {children}
   </section>;
 }
@@ -213,7 +214,10 @@ function App() {
   const [offline, setOffline] = useState(false);
   const [hasStatus, setHasStatus] = useState(false);
   const [drawer, setDrawer] = useState<Drawer>();
-  const [focusMode, setFocusMode] = useState(false);
+  const [filesTab, setFilesTab] = useState<"browse" | "transfers">("browse");
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [expandedDesktop, setExpandedDesktop] = useState(false);
+  const [fullscreenMessage, setFullscreenMessage] = useState<string>();
   const [activityOpen, setActivityOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"stop" | "restart">();
   const [importState, setImportState] = useState<ImportState>({ ready: false, busy: false, recoveryRequired: false });
@@ -227,6 +231,7 @@ function App() {
   const desktopGeneration = useRef(0);
   const transferPending = useRef(false);
   const drawerTrigger = useRef<HTMLElement | null>(null);
+  const desktopPanelRef = useRef<HTMLElement>(null);
 
   const logLines = useMemo(
     () => {
@@ -239,6 +244,10 @@ function App() {
     },
     [status.logs],
   );
+
+  useEffect(() => {
+    if (drawer) document.getElementById(`heading-${drawer}`)?.focus();
+  }, [drawer]);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (refreshing.current || actionInFlight.current) return;
@@ -316,6 +325,26 @@ function App() {
     }
   }, [status.installed, status.mt5]);
 
+  useEffect(() => {
+    const updateFullscreen = () => {
+      const active = document.fullscreenElement === desktopPanelRef.current;
+      setNativeFullscreen(active);
+      if (active) setExpandedDesktop(false);
+    };
+    const exitExpandedOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && expandedDesktop && !document.fullscreenElement) {
+        setExpandedDesktop(false);
+        setFullscreenMessage(undefined);
+      }
+    };
+    document.addEventListener("fullscreenchange", updateFullscreen);
+    document.addEventListener("keydown", exitExpandedOnEscape);
+    return () => {
+      document.removeEventListener("fullscreenchange", updateFullscreen);
+      document.removeEventListener("keydown", exitExpandedOnEscape);
+    };
+  }, [expandedDesktop]);
+
   async function runAction(action: PendingAction, request: () => Promise<Mt5Status>) {
     if (actionInFlight.current) return;
     actionInFlight.current = true;
@@ -339,6 +368,39 @@ function App() {
   function handleReloadDesktop(): void {
     setDesktopKey((key) => key + 1);
     void loadDesktopConfig();
+  }
+
+  async function toggleFullscreen() {
+    const panel = desktopPanelRef.current;
+    if (document.fullscreenElement === panel) {
+      await document.exitFullscreen().catch(() => setFullscreenMessage("Unable to exit browser fullscreen. Press Escape to leave it."));
+      return;
+    }
+    if (expandedDesktop) {
+      setExpandedDesktop(false);
+      setFullscreenMessage(undefined);
+      return;
+    }
+    setFullscreenMessage(undefined);
+    if (!panel?.requestFullscreen) {
+      setExpandedDesktop(true);
+      setFullscreenMessage("Native fullscreen is unavailable. Showing the expanded desktop view.");
+      return;
+    }
+    try {
+      await panel.requestFullscreen();
+    } catch {
+      setExpandedDesktop(true);
+      setFullscreenMessage("Native fullscreen was unavailable or denied. Showing the expanded desktop view.");
+    }
+  }
+
+  function leaveFullscreenForTool() {
+    setFullscreenMessage(undefined);
+    if (document.fullscreenElement === desktopPanelRef.current) {
+      void document.exitFullscreen().catch(() => setFullscreenMessage("Unable to leave browser fullscreen."));
+    }
+    setExpandedDesktop(false);
   }
 
   async function handleExpertsUpload(event: FormEvent<HTMLFormElement>) {
@@ -395,25 +457,33 @@ function App() {
   const canLaunch = status.installed && status.mt5 !== "running" && !commandBusy && importState.ready && !importState.recoveryRequired;
   const canStop = status.mt5 === "running" && !commandBusy;
   const canRestart = status.installed && !commandBusy && importState.ready && !importState.recoveryRequired;
-  const transferBlocked = !importState.ready ? "Checking import status. Open Import to retry if this persists." : importState.active ? "An import is already staged. Review or cancel it before starting another transfer." : importState.recoveryRequired ? "Recover the interrupted import before transferring files." : importState.busy || transfer ? "An import operation is in progress." : busy || uploadingExperts ? "Wait for the current terminal or upload operation." : unavailable || !status.installed ? "The installed terminal and control server must be available." : undefined;
+  const transferBlocked = !importState.ready ? "Checking transfer status. Open Files > Transfers to retry if this persists." : importState.active ? "An import is already staged. Review or cancel it before starting another transfer." : importState.recoveryRequired ? "Recover the interrupted import before transferring files." : importState.busy || transfer ? "An import operation is in progress." : busy || uploadingExperts ? "Wait for the current terminal or upload operation." : unavailable || !status.installed ? "The installed terminal and control server must be available." : undefined;
   const expertLabel = (!hasStatus ? "Awaiting status" : status.expert?.state === "loaded" ? "Attachment recorded" : status.expert?.state === "removed" ? "Detached" : status.expert?.state === "failed" ? "Initialisation failed" : "Unverified") + (offline ? " (stale)" : "");
   const expertTone = offline ? "neutral" : status.expert?.state === "failed" ? "bad" : status.expert?.state === "removed" ? "warn" : status.expert?.state === "loaded" ? "good" : "neutral";
   const terminalLabel = (!hasStatus ? "Awaiting status" : stateLabel(status)) + (offline ? " (stale)" : "");
   const terminalTone = offline || !hasStatus ? "neutral" : status.mt5 === "failed" ? "bad" : status.mt5 === "running" ? "good" : busy ? "warn" : "neutral";
 
-  function openDrawer(next: Drawer) {
+  function openDrawer(next: Drawer | "evidence" | "import" | "paths") {
     if (document.activeElement instanceof HTMLElement && !document.activeElement.closest(".drawer")) drawerTrigger.current = document.activeElement;
-    setFocusMode(false);
-    setDrawer(next);
+    leaveFullscreenForTool();
+    if (next === "import") {
+      setFilesTab("transfers");
+      setDrawer("files");
+    } else if (next === "evidence" || next === "paths") {
+      setDrawer("diagnostics");
+    } else {
+      setDrawer(next);
+    }
   }
   function closeDrawer() { setDrawer(undefined); drawerTrigger.current?.focus(); }
+  function openTransfers() { openDrawer("import"); }
   const transferHandler = useRef<(files: SelectedImportFile[], destination: string) => boolean>(() => false);
   const transferSequence = useRef(0);
   transferHandler.current = (files, destination) => {
-    if (transferBlocked || transferPending.current) { setError(transferBlocked ?? "A transfer is already pending."); openDrawer("import"); return false; }
+    if (transferBlocked || transferPending.current) { setError(transferBlocked ?? "A transfer is already pending."); openTransfers(); return false; }
     transferPending.current = true;
     setTransfer({ id: `transfer-${Date.now()}-${++transferSequence.current}`, files, destination });
-    openDrawer("import");
+    openTransfers();
     return true;
   };
   const queueTransfer = useCallback((files: SelectedImportFile[], destination: string) => transferHandler.current(files, destination), []);
@@ -427,14 +497,28 @@ function App() {
     setFilesRefresh((value) => value + 1);
   }
 
+  const hasActiveError = offline || Boolean(error || status.lastError || status.expert?.lastError || status.expert?.state === "removed" || status.expert?.state === "failed" || importState.recoveryRequired);
+  const errorMessage = offline
+    ? "Control server unreachable. Displayed status is stale; terminal commands are disabled."
+    : error ?? (importState.recoveryRequired ? "An interrupted import needs recovery before MT5 can launch." : status.lastError ?? status.expert?.lastError ?? (status.expert?.state === "removed" ? "EA detached. Review the journal evidence, then acknowledge if removal was deliberate." : "EA initialisation failure recorded. Review the journal evidence."));
+  const warningMessage = !offline && !error && status.mt5 !== "failed" && status.expert?.state === "removed";
+  function renderErrorBanner() {
+    if (!hasActiveError) return null;
+    return <section className={`error-strip${warningMessage ? " warning-strip" : ""}`} role="alert">
+      <Activity size={17} aria-hidden="true" />
+      <span>{errorMessage}</span>
+      <button type="button" onClick={() => openDrawer(importState.recoveryRequired ? "import" : "evidence")}>{importState.recoveryRequired ? "Open transfers" : "View diagnostics"}</button>
+      {error && <button className="icon-button" type="button" aria-label="Dismiss action error" onClick={() => setError(undefined)}><X size={15} /></button>}
+    </section>;
+  }
+
   return (
-    <main className={`shell${focusMode ? " focus-mode" : ""}`}>
+    <main className={`shell${expandedDesktop ? " expanded-desktop" : ""}`}>
       <header className="command-bar">
-        <div className="brand-block"><div className="brand-mark"><Terminal size={18} aria-hidden="true" /></div><div><h1>Linux MT5</h1><p>Control room</p></div></div>
-        <div className="state-block" role="group" aria-label="Three separate runtime signals">
-          <StatusPill label="Terminal process" value={terminalLabel} tone={terminalTone} onClick={() => openDrawer("evidence")} />
-          <StatusPill label="EA journal" value={expertLabel} tone={expertTone} onClick={() => openDrawer("evidence")} />
-          <StatusPill label="Heartbeat" value="Unverified" onClick={() => openDrawer("evidence")} />
+        <div className="brand-block"><div className="brand-mark"><Terminal size={18} aria-hidden="true" /></div><div><h1>Linux MT5</h1><p>Control Room</p></div></div>
+        <div className="state-block" role="group" aria-label="Terminal and EA runtime signals">
+          <StatusPill label="Terminal process" value={terminalLabel} tone={terminalTone} onClick={() => openDrawer("diagnostics")} />
+          <StatusPill label="EA journal" value={expertLabel} tone={expertTone} onClick={() => openDrawer("diagnostics")} />
         </div>
         <div className="command-actions" aria-label="Terminal controls">
           {hasStatus && !status.installed ? <ActionButton disabled={!canInstall} icon={<Download size={16} />} label="Install" onClick={() => void runAction("install", () => postJson<Mt5Status>("/api/mt5/install"))} pending={pending === "install"} /> : status.mt5 === "running" || status.mt5 === "stopping" ? <ActionButton danger disabled={!canStop} icon={<Square size={15} />} label="Stop" onClick={() => setConfirmAction("stop")} pending={pending === "stop"} /> : <ActionButton disabled={!canLaunch} icon={<Play size={16} />} label="Launch" onClick={() => void runAction("launch", () => postJson<Mt5Status>("/api/mt5/launch"))} pending={pending === "launch"} />}
@@ -442,37 +526,34 @@ function App() {
         </div>
       </header>
 
-      {(offline || error || status.lastError || status.expert?.lastError || status.expert?.state === "removed" || status.expert?.state === "failed" || importState.recoveryRequired) && <section className={`error-strip${!offline && !error && status.mt5 !== "failed" && status.expert?.state === "removed" ? " warning-strip" : ""}`} role="status">
-        <Activity size={17} aria-hidden="true" />
-        <span>{offline ? "Control server unreachable. Displayed status is stale; terminal commands are disabled." : error ?? (importState.recoveryRequired ? "An interrupted import needs recovery before MT5 can launch." : status.lastError ?? status.expert?.lastError ?? (status.expert?.state === "removed" ? "EA detached. Review the journal evidence, then acknowledge if removal was deliberate." : "EA initialisation failure recorded. Review the journal evidence."))}</span>
-        <button type="button" onClick={() => openDrawer(importState.recoveryRequired ? "import" : "evidence")}>{importState.recoveryRequired ? "Open recovery" : "View evidence"}</button>
-        {error && <button className="icon-button" type="button" aria-label="Dismiss action error" onClick={() => setError(undefined)}><X size={15} /></button>}
-      </section>}
+      {!nativeFullscreen && renderErrorBanner()}
 
       <div className="workspace">
-        <nav className="rail" aria-label="Workspace">
-          <button type="button" className="rail-button" aria-pressed={!drawer} onClick={() => setDrawer(undefined)}><Monitor size={19} aria-hidden="true" /><span>Desktop</span></button>
-          <div className="rail-divider" />
-          {([
-            ["evidence", Activity, "Evidence"], ["files", Folder, "Files"], ["clipboard", Clipboard, "Clipboard"],
-            ["import", Upload, "Import"], ["session", ShieldCheck, "Session"], ["paths", Terminal, "Paths"],
-          ] as const).map(([name, Icon, label]) => <button key={name} type="button" className="rail-button" aria-pressed={drawer === name} aria-controls={`drawer-${name}`} aria-expanded={drawer === name} aria-label={`${label}${name === "import" && importState.active ? " (staged import)" : ""}`} onClick={() => drawer === name ? closeDrawer() : openDrawer(name)}><Icon size={19} aria-hidden="true" /><span>{label}</span>{name === "import" && (importState.active || importState.busy || transfer) && <i className="rail-badge" aria-hidden="true" />}</button>)}
+        <nav className="workspace-nav" aria-label="Workspace">
+          <div className="primary-nav">
+            <button type="button" className="nav-button" aria-current={!drawer || drawer === "clipboard" ? "page" : undefined} aria-controls="desktop-content" onClick={() => setDrawer(undefined)}><Monitor size={17} aria-hidden="true" /><span>Desktop</span></button>
+            <button type="button" className="nav-button" aria-current={drawer === "files" ? "page" : undefined} aria-controls="drawer-files" aria-expanded={drawer === "files"} aria-label={`Files${importState.active || importState.recoveryRequired || transfer ? " (transfers need attention)" : ""}`} onClick={() => openDrawer("files")}><Folder size={17} aria-hidden="true" /><span>Files</span>{(importState.active || importState.recoveryRequired || transfer) && <i className="nav-badge" aria-hidden="true" />}</button>
+            <button type="button" className="nav-button" aria-current={drawer === "session" ? "page" : undefined} aria-controls="drawer-session" aria-expanded={drawer === "session"} onClick={() => openDrawer("session")}><ShieldCheck size={17} aria-hidden="true" /><span>Session</span></button>
+          </div>
+          <div className="secondary-nav"><button type="button" className="nav-secondary-button" aria-pressed={drawer === "diagnostics"} aria-controls="drawer-diagnostics" aria-expanded={drawer === "diagnostics"} onClick={() => openDrawer("diagnostics")}><Activity size={15} aria-hidden="true" />Diagnostics</button></div>
         </nav>
 
         <div className={`stage${drawer ? " with-drawer" : ""}`}>
           <div className="desktop-column">
-            <section className="desktop-panel" aria-label="MT5 desktop">
+            <section ref={desktopPanelRef} className="desktop-panel" id="desktop-content" aria-label="MT5 desktop">
+              {nativeFullscreen && renderErrorBanner()}
               <header className="desktop-toolbar">
                 <h2><Monitor size={16} aria-hidden="true" />MT5 desktop <small>noVNC</small></h2>
                 <div className="button-row desktop-tools">
                   <button type="button" onClick={() => openDrawer("clipboard")} aria-controls="drawer-clipboard"><Clipboard size={15} aria-hidden="true" />Clipboard</button>
                   <button type="button" onClick={handleReloadDesktop}><RefreshCcw size={15} aria-hidden="true" />Reload view</button>
                   {runtimeConfig && <a className="button" href={runtimeConfig.noVncUrl} target="_blank" rel="noopener noreferrer"><ExternalLink size={15} aria-hidden="true" />New tab<span className="sr-only">: open noVNC</span></a>}
-                  <button type="button" aria-pressed={focusMode} onClick={() => setFocusMode((value) => !value)}>{focusMode ? <Minimize size={15} aria-hidden="true" /> : <Maximize size={15} aria-hidden="true" />}{focusMode ? "Exit focus" : "Focus"}</button>
+                  <button type="button" aria-pressed={nativeFullscreen || expandedDesktop} onClick={() => void toggleFullscreen()}>{nativeFullscreen || expandedDesktop ? <Minimize size={15} aria-hidden="true" /> : <Maximize size={15} aria-hidden="true" />}{nativeFullscreen ? "Exit full screen" : expandedDesktop ? "Exit expanded view" : "Full screen"}</button>
                 </div>
               </header>
+              {fullscreenMessage && <p className="fullscreen-message" role="status">{fullscreenMessage}</p>}
               <div className="desktop-surface">
-                {runtimeConfig ? <iframe key={desktopKey} className="desktop-frame" src={runtimeConfig.noVncUrl} title="Linux MT5 noVNC desktop" /> : <div className="desktop-placeholder" role="status"><Monitor size={30} aria-hidden="true" /><p>{desktopError ?? "Loading desktop configuration…"}</p>{desktopError && <button type="button" onClick={() => void loadDesktopConfig()}>Retry desktop connection</button>}</div>}
+                {runtimeConfig ? <iframe key={desktopKey} className="desktop-frame" src={runtimeConfig.noVncUrl} title="Linux MT5 noVNC desktop" allowFullScreen /> : <div className="desktop-placeholder" role="status"><Monitor size={30} aria-hidden="true" /><p>{desktopError ?? "Loading desktop configuration…"}</p>{desktopError && <button type="button" onClick={() => void loadDesktopConfig()}>Retry desktop connection</button>}</div>}
               </div>
               <footer className="desktop-footer"><span><i className={`led ${offline ? "neutral" : status.desktop === "failed" ? "bad" : "neutral"}`} aria-hidden="true" />Desktop service: {hasStatus ? `${status.desktop}${offline ? " (stale)" : ""}` : "awaiting status"}</span><span>Connection controls and scaling are inside noVNC.</span></footer>
             </section>
@@ -485,19 +566,48 @@ function App() {
           </div>
 
           <aside className="drawer" hidden={!drawer} aria-label="Workspace tools">
-            <DrawerSection name="evidence" title="Runtime evidence" description="Process state, journal evidence and heartbeat are separate signals." active={drawer} onClose={closeDrawer}>
-              <div className="evidence-card"><i className={`led ${terminalTone}`} aria-hidden="true" /><div><h3>Terminal process · {terminalLabel}</h3><small>Source: supervisor process check{offline ? " (stale)" : ""}</small><p>Whether the MT5 process is running under Wine. This does not establish EA or broker health.</p></div></div>
-              <div className="evidence-card"><i className={`led ${expertTone}`} aria-hidden="true" /><div><h3>EA journal · {expertLabel}</h3><small>{status.expert ? `Source: MT5 journal for ${status.expert.name}${offline ? " (stale)" : ""}` : "No configured EA journal evidence reported"}</small><p>{status.expert?.state === "loaded" ? "MT5 recorded an attachment. This does not prove initialisation, trading or ongoing liveness." : status.expert?.state === "removed" ? "MT5 recorded an EA removal. Acknowledge only if the detach was deliberate." : status.expert?.state === "failed" ? "MT5 recorded an initialisation failure. Acknowledging a removal cannot clear this failure." : "No verified attachment or failure evidence is available."}</p>{status.expert?.lastError && <p className={status.expert.state === "removed" ? "warning-text" : "error-text"}>{status.expert.lastError}</p>}
-                {status.expert?.state === "removed" && <button type="button" className="secondary-button" disabled={commandBusy} onClick={() => void runAction("acknowledge", () => postJson<Mt5Status>("/api/mt5/expert/acknowledge-removals"))}>{pending === "acknowledge" ? "Acknowledging…" : "Acknowledge deliberate removal"}</button>}
-              </div></div>
-              <div className="evidence-card"><i className="led neutral" aria-hidden="true" /><div><h3>Heartbeat · Unverified</h3><small>No heartbeat integration</small><p>EA heartbeat, broker connectivity and account health are not verified by this control surface. Attachment evidence is not a heartbeat.</p></div></div>
-              {!importState.ready && <p className="note">Import status is not available yet. Launch and Restart wait for recovery checks. <button type="button" onClick={() => openDrawer("import")}>Open Import</button></p>}
-              {status.lastError && <p className="note">{status.lastError}</p>}
+            <DrawerSection name="diagnostics" title="Diagnostics" description="Runtime evidence and technical paths for support." active={drawer} onClose={closeDrawer}>
+              <details className="diagnostic-details">
+                <summary>Runtime evidence</summary>
+                <div className="panel-section">
+                  <div className="evidence-card"><i className={`led ${terminalTone}`} aria-hidden="true" /><div><h3>Terminal process · {terminalLabel}</h3><small>Source: supervisor process check{offline ? " (stale)" : ""}</small><p>Whether the MT5 process is running under Wine. This does not establish EA or broker health.</p></div></div>
+                  <div className="evidence-card"><i className={`led ${expertTone}`} aria-hidden="true" /><div><h3>EA journal · {expertLabel}</h3><small>{status.expert ? `Source: MT5 journal for ${status.expert.name}${offline ? " (stale)" : ""}` : "No configured EA journal evidence reported"}</small><p>{status.expert?.state === "loaded" ? "MT5 recorded an attachment. This does not prove initialisation, trading or ongoing liveness." : status.expert?.state === "removed" ? "MT5 recorded an EA removal. Acknowledge only if the detach was deliberate." : status.expert?.state === "failed" ? "MT5 recorded an initialisation failure. Acknowledging a removal cannot clear this failure." : "No verified attachment or failure evidence is available."}</p>{status.expert?.lastError && <p className={status.expert.state === "removed" ? "warning-text" : "error-text"}>{status.expert.lastError}</p>}
+                    {status.expert?.state === "removed" && <button type="button" className="secondary-button" disabled={commandBusy} onClick={() => void runAction("acknowledge", () => postJson<Mt5Status>("/api/mt5/expert/acknowledge-removals"))}>{pending === "acknowledge" ? "Acknowledging…" : "Acknowledge deliberate removal"}</button>}
+                  </div></div>
+                  <div className="evidence-card"><i className="led neutral" aria-hidden="true" /><div><h3>Heartbeat · Unverified</h3><small>No heartbeat integration</small><p>EA heartbeat, broker connectivity and account health are not verified by this control surface. Attachment evidence is not a heartbeat.</p></div></div>
+                  {!importState.ready && <p className="note">Import status is not available yet. Launch and Restart wait for recovery checks. <button type="button" onClick={openTransfers}>Open Files transfers</button></p>}
+                  {status.lastError && <p className="note error-text">{status.lastError}</p>}
+                </div>
+              </details>
+              <details className="diagnostic-details">
+                <summary>Technical paths and installer files</summary>
+                <dl className="details">
+                  {[ ["Data volume", status.paths.dataDir], ["Wine prefix", status.paths.winePrefix], ["Terminal", status.paths.mt5ExecutablePath], ["MT5 data folder", filesListing?.root], ["Windows data folder", filesListing?.windowsRoot], ["EA upload target", expertsInfo?.expertsDir], ["Installer cache", status.paths.cacheDir], ["MT5 installer", status.paths.mt5InstallerPath], ["WebView2 installer", status.paths.webviewInstallerPath]].map(([label, path]) => <div key={label}><dt>{label}</dt><dd>{path ? <code>{path}</code> : "Not reported"}</dd></div>)}
+                </dl>
+                <p className="upload-note">Open Files to resolve the active data-folder paths. Paths can be selected and copied with Ctrl/Cmd+C.</p>
+                <p className="upload-note">MT5 setup: {hasStatus ? status.installerFiles.mt5Setup ? "cached" : "missing" : "not reported"}. WebView2 setup: {hasStatus ? status.installerFiles.webviewSetup ? "cached" : "missing" : "not reported"}.</p>
+              </details>
             </DrawerSection>
 
-            <DrawerSection name="files" title="Files" description="Browse the active data folder and stage files directly to a destination." active={drawer} onClose={closeDrawer}>
-              <FilesPanel active={drawer === "files"} offline={offline} transferBlocked={transferBlocked} refreshKey={filesRefresh} onTransfer={queueTransfer} onReview={() => openDrawer("import")} onListing={setFilesListing} />
-              <button type="button" className="secondary-button" onClick={() => openDrawer("clipboard")}><Clipboard size={16} aria-hidden="true" />Open text clipboard bridge</button>
+            <DrawerSection name="files" title="Files" description="Browse MT5 files or review staged transfers." active={drawer} onClose={closeDrawer}>
+              <div className="files-tabs" role="tablist" aria-label="Files">
+                <button id="files-browse-tab" type="button" role="tab" aria-selected={filesTab === "browse"} aria-controls="files-browse-panel" tabIndex={filesTab === "browse" ? 0 : -1} onClick={() => setFilesTab("browse")} onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
+                  event.preventDefault();
+                  const next = event.key === "Home" ? "browse" : event.key === "End" ? "transfers" : filesTab === "browse" ? "transfers" : "browse";
+                  setFilesTab(next);
+                  document.getElementById(`files-${next}-tab`)?.focus();
+                }}>Browse</button>
+                <button id="files-transfers-tab" type="button" role="tab" aria-selected={filesTab === "transfers"} aria-controls="files-transfers-panel" aria-label={`Transfers${importState.active || importState.recoveryRequired || transfer ? ", items need attention" : ""}`} tabIndex={filesTab === "transfers" ? 0 : -1} onClick={() => setFilesTab("transfers")} onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
+                  event.preventDefault();
+                  const next = event.key === "Home" ? "browse" : event.key === "End" ? "transfers" : filesTab === "browse" ? "transfers" : "browse";
+                  setFilesTab(next);
+                  document.getElementById(`files-${next}-tab`)?.focus();
+                }}>Transfers{(importState.active || importState.recoveryRequired || transfer) && <i className="nav-badge" aria-hidden="true" />}</button>
+              </div>
+              <section id="files-browse-panel" className="files-tab-panel" role="tabpanel" aria-labelledby="files-browse-tab" tabIndex={0} hidden={filesTab !== "browse"}>
+              <FilesPanel active={drawer === "files" && filesTab === "browse"} offline={offline} transferBlocked={transferBlocked} refreshKey={filesRefresh} onTransfer={queueTransfer} onReview={openTransfers} onListing={setFilesListing} />
               <details className="quick-upload"><summary>Quick EA upload · extension-based routing</summary>
                 <form className="panel-section" encType="multipart/form-data" onSubmit={handleExpertsUpload}>
                   <h3>Quick EA upload</h3>
@@ -507,32 +617,21 @@ function App() {
                   {expertsInfo && <p className="upload-note">Experts target: <code>{expertsInfo.expertsDir}</code></p>}
                   {uploadMessage && <p className="note" role="status">{uploadMessage}</p>}
                   {expertsInfo?.files.length ? <ul className="file-list">{expertsInfo.files.slice(0, 8).map((file) => <li key={file}>{file}</li>)}</ul> : null}
-                  <p className="upload-note">No EA is compiled or attached. If Navigator does not refresh, restart MT5 when ready.</p>
+                  <p className="upload-note">No EA is compiled or attached. Right-click Expert Advisors in MT5’s Navigator and choose Refresh to discover new files. This does not reinitialise an EA already attached to a chart.</p>
                 </form>
               </details>
+              </section>
+              <section id="files-transfers-panel" className="files-tab-panel" role="tabpanel" aria-labelledby="files-transfers-tab" tabIndex={0} hidden={filesTab !== "transfers"}>
+                <DataImportPanel stopped={hasStatus && (status.mt5 === "idle" || status.mt5 === "failed")} disabled={busy || unavailable || !status.installed || uploadingExperts} onApplied={importApplied} transfer={transfer} onTransferConsumed={consumeTransfer} onStateChange={setImportState} refreshKey={`${offline}:${status.mt5}:${drawer === "files" && filesTab === "transfers"}`} />
+              </section>
             </DrawerSection>
 
             <DrawerSection name="clipboard" title="Text clipboard" description="Move text between your device and the MT5 desktop." active={drawer} onClose={closeDrawer}><ClipboardPanel offline={offline} /></DrawerSection>
 
-            <DrawerSection name="import" title="Import & review" description="Staged, checksummed and backed up before applying." active={drawer} onClose={closeDrawer}>
-              <DataImportPanel stopped={hasStatus && (status.mt5 === "idle" || status.mt5 === "failed")} disabled={busy || unavailable || !status.installed || uploadingExperts} onApplied={importApplied} transfer={transfer} onTransferConsumed={consumeTransfer} onStateChange={setImportState} refreshKey={`${offline}:${status.mt5}:${drawer === "import"}`} />
+            <DrawerSection name="session" title="Startup" description="Choose what MT5 should open on its next launch." active={drawer} onClose={closeDrawer}>
+              <StartupPanel offline={offline} activeMode={status.mt5 === "running" ? status.sessionMode : undefined} active={drawer === "session"} refreshKey={`${filesRefresh}:${status.installed}:${status.mt5}`} />
             </DrawerSection>
 
-            <DrawerSection name="session" title="Saved session" description="What MT5 can restore from its persisted data." active={drawer} onClose={closeDrawer}>
-              <div className="note"><h3>Startup mode · {status.sessionMode === "managed" ? "Managed" : status.sessionMode === "restore" ? "Restore" : "Not reported"}</h3><p>{status.sessionMode === "managed" ? "Compose-managed startup can replace chart and preset settings when MT5 launches." : status.sessionMode === "restore" ? "MT5 resumes its own saved account, charts and profile without rewriting common.ini or replaying the managed startup block." : "Waiting for the server to report its startup mode."}</p></div>
-              <h3>Kept on the persisted volume</h3><ul className="session-notes"><li>Wine prefix, registry and terminal data.</li><li>Chart profiles and templates saved by MT5.</li><li>Saved account credentials when MT5’s “Save password” is enabled.</li></ul>
-              <h3>Restoring the session</h3><ul className="session-notes"><li>Stop and Restart ask Wine to close gracefully so MT5 can save. Power loss may lose unsaved changes.</li><li>Keep the same data volume when recreating the container.</li><li>Passwords moved from another machine may not decrypt. A fresh login may be needed.</li></ul>
-              {hasStatus && <dl className="details"><div><dt>Data volume</dt><dd><code>{status.paths.dataDir}</code></dd></div></dl>}
-              <p className="upload-note">This is persisted application state, not a VM memory snapshot or a heartbeat guarantee.</p>
-            </DrawerSection>
-
-            <DrawerSection name="paths" title="Technical paths" description="Reported container paths for inspection and support." active={drawer} onClose={closeDrawer}>
-              <dl className="details">
-                {[["Data volume", status.paths.dataDir], ["Wine prefix", status.paths.winePrefix], ["Terminal", status.paths.mt5ExecutablePath], ["MT5 data folder", filesListing?.root], ["Windows data folder", filesListing?.windowsRoot], ["EA upload target", expertsInfo?.expertsDir], ["Installer cache", status.paths.cacheDir], ["MT5 installer", status.paths.mt5InstallerPath], ["WebView2 installer", status.paths.webviewInstallerPath]].map(([label, path]) => <div key={label}><dt>{label}</dt><dd>{path ? <code>{path}</code> : "Not reported"}</dd></div>)}
-              </dl>
-              <p className="upload-note">Open Files to resolve the active data-folder paths. Paths can be selected and copied with Ctrl/Cmd+C.</p>
-              <p className="upload-note">MT5 setup: {hasStatus ? status.installerFiles.mt5Setup ? "cached" : "missing" : "not reported"}. WebView2 setup: {hasStatus ? status.installerFiles.webviewSetup ? "cached" : "missing" : "not reported"}.</p>
-            </DrawerSection>
           </aside>
         </div>
       </div>
@@ -541,7 +640,7 @@ function App() {
         const action = confirmAction;
         setConfirmAction(undefined);
         void runAction(action, () => postJson<Mt5Status>(`/api/mt5/${action}`));
-      }}><p>{confirmAction === "stop" ? "Running EAs stop until you launch MT5 again. The Linux desktop stays available." : "Running EAs stop while MT5 closes and starts again. Check their attachment after launch."}</p><p>MT5 is asked to close gracefully so it can save account and chart state. {confirmAction === "restart" && (status.sessionMode === "managed" ? "Compose-managed settings are applied on launch." : "MT5 resumes its last saved session.")}</p><p>Heartbeat remains unverified.</p></ConfirmDialog>}
+      }}><p>{confirmAction === "stop" ? "Running EAs stop until you launch MT5 again. The Linux desktop stays available." : "Running EAs stop while MT5 closes and starts again. Check their attachment after launch."}</p><p>MT5 is asked to close gracefully so it can save account and chart state. {confirmAction === "restart" && "The startup choice saved in Session will be used on launch."}</p></ConfirmDialog>}
     </main>
   );
 }
