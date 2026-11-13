@@ -7,7 +7,7 @@ import { normaliseDataDirectory, safeTarget } from "./data-import";
 import { customStartupIni } from "./mt5-startup-config";
 
 export const STARTUP_PERIODS = ["M1", "M2", "M3", "M4", "M5", "M6", "M10", "M12", "M15", "M20", "M30", "H1", "H2", "H3", "H4", "H6", "H8", "H12", "D1", "W1", "MN1"] as const;
-const value = z.string().max(512).refine((text) => !/[\r\n\0]/.test(text), "Startup values cannot contain line breaks or NUL characters.");
+const value = z.string().max(512).refine((text) => ![...text].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) && !/[\u0085\u2028\u2029]/.test(text), "Startup values cannot contain control characters or line breaks.");
 export const StartupSettingsSchema = z.object({
   mode: z.enum(["restore", "custom"]), expert: value.default(""), symbol: value.default(""),
   period: z.enum(STARTUP_PERIODS).default("H1"), preset: value.default(""), profile: value.default(""),
@@ -35,6 +35,7 @@ export class StartupControlStore {
     const config = { ...settings, expert: settings.expert.trim().replace(/\\/g, "/").replace(/\.ex5$/i, ""), preset: settings.preset.trim().replace(/\\/g, "/"), symbol: settings.symbol.trim(), profile: settings.profile.trim() };
     if (config.expert && !config.symbol) throw new Error("Choose the broker's exact chart symbol for this EA.");
     if (config.preset && !config.expert) throw new Error("A preset requires an expert. Profiles already contain their own EA inputs.");
+    if (config.profile && (config.expert || config.symbol || config.preset)) throw new Error("Choose either a saved profile or a custom chart. A profile already contains its charts, EAs and inputs.");
     if (config.profile.includes("/") || config.profile.includes("\\")) throw new Error("Choose a single existing profile name.");
     if (!config.expert && !config.symbol && !config.profile) throw new Error("Choose a profile or chart for custom startup, or use Restore last session.");
     const root = findMt5TerminalDataRoot(this.winePrefix);

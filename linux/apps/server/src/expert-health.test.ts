@@ -76,3 +76,18 @@ test("another chart's successful attachment cannot clear a failed EA instance", 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("nested startup experts match Windows journal paths and basename failures", async () => {
+  const root = await mkdtemp(join(tmpdir(), "mt5-expert-path-"));
+  const file = join(root, "logs/20261112.log");
+  try {
+    await mkdir(join(root, "logs"));
+    const monitor = await ExpertLogMonitor.create(root, "Folder/Example.v2");
+    await writeFile(file, "AB\t0\t06:22:00.000\tExperts\texpert Folder\\Example.v2 (XAUUSD,M5) loaded successfully\r\n");
+    await monitor.poll();
+    expect(monitor.status.state).toBe("loaded");
+    await appendFile(file, "AB\t0\t06:22:00.000\tExperts\tinitializing of Example.v2 (XAUUSD,M5) failed with code 0\r\n");
+    await monitor.poll();
+    expect(monitor.status.state).toBe("failed");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

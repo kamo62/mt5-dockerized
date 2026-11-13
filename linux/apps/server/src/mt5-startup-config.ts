@@ -247,33 +247,30 @@ function windowsPath(winePrefix: string, path: string): string {
 
 export type CustomStartup = { expert: string; symbol: string; period: string; preset: string; profile: string };
 
+function customStartupSections(config: CustomStartup): Record<string, Record<string, string>> {
+  const updates: Record<string, Record<string, string>> = {};
+  if (config.profile) updates.Charts = { ProfileLast: config.profile };
+  const startup: Record<string, string> = {};
+  if (config.expert) startup.Expert = config.expert.replace(/\//g, "\\");
+  if (config.symbol) { startup.Symbol = config.symbol; startup.Period = config.period; }
+  if (config.preset) startup.ExpertParameters = config.preset.replace(/\//g, "\\");
+  if (Object.keys(startup).length) updates.StartUp = startup;
+  return updates;
+}
+
 export function customStartupIni(config: CustomStartup): string {
-  const sections: string[] = [];
-  if (config.profile) sections.push(`[Charts]\r\nProfileLast=${config.profile}`);
-  const startup: string[] = [];
-  if (config.expert) startup.push(`Expert=${config.expert}`);
-  if (config.symbol) startup.push(`Symbol=${config.symbol}`, `Period=${config.period}`);
-  if (config.preset) startup.push(`ExpertParameters=${config.preset}`);
-  if (startup.length) sections.push(`[StartUp]\r\n${startup.join("\r\n")}`);
-  return sections.length ? `${sections.join("\r\n\r\n")}\r\n` : "";
+  return updateIni("", customStartupSections(config));
 }
 
 export async function writeCustomStartupFile(winePrefix: string, cacheDir: string, config: CustomStartup) {
   const restored = await writeMt5RestoreFile(winePrefix, cacheDir);
   if (!restored) throw new Error("MT5's saved configuration was not found. Launch it once before configuring custom startup.");
   const base = decodeMt5Text(await readFile(restored.path));
-  const updates: Record<string, Record<string, string>> = {};
-  if (config.profile) updates.Charts = { ProfileLast: config.profile };
-  const startup: Record<string, string> = {};
-  if (config.expert) startup.Expert = config.expert;
-  if (config.symbol) { startup.Symbol = config.symbol; startup.Period = config.period; }
-  if (config.preset) startup.ExpertParameters = config.preset;
-  if (Object.keys(startup).length) updates.StartUp = startup;
   // Deliberately do not modify Experts/AllowLiveTrading or DLL/WebRequest
   // permissions. A startup definition is not permission to enable trading.
   const path = resolve(cacheDir, "control-room-startup.ini");
   const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, encodeMt5Text(updateIni(removeIniSection(base, "StartUp"), updates)), { mode: 0o600, flag: "wx" });
+  await writeFile(temporary, encodeMt5Text(updateIni(removeIniSection(base, "StartUp"), customStartupSections(config))), { mode: 0o600, flag: "wx" });
   await rename(temporary, path);
   return { path, windowsPath: windowsPath(winePrefix, path) };
 }

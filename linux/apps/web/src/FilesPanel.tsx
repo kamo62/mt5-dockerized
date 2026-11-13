@@ -79,7 +79,7 @@ export function FilesPanel({ active, offline, transferBlocked, refreshKey, onTra
     setSelection(files);
     if (blocked) { setMessage(blocked); return; }
     if (!files.length) { setMessage("Choose files or a folder first."); return; }
-    if (onTransfer(files, destination)) setMessage(`Transfer sent to Import for MT5 / ${destination || "data folder"}. Selection is retained for retry; terminal data has not been changed.`);
+    if (onTransfer(files, destination)) setMessage(`Transfer sent to Files > Transfers for MT5 / ${destination || "data folder"}. Selection is retained for retry; terminal data has not been changed.`);
   }
 
   return <section className="panel-section" aria-label="MT5 destination browser">
@@ -93,7 +93,7 @@ export function FilesPanel({ active, offline, transferBlocked, refreshKey, onTra
     <p className="upload-note">Paste a relative path, or this terminal’s Linux / Windows data-folder path. Only this data folder can be browsed.</p>
     {listing && <details className="root-paths"><summary>Active data-folder paths</summary><code>{listing.root}</code>{listing.windowsRoot && <code>{listing.windowsRoot}</code>}</details>}
     <div className="button-row folder-shortcuts" aria-label="Destination shortcuts">
-      {[["MQL5/Experts", "Experts"], ["MQL5/Indicators", "Indicators"], ["MQL5/Include", "Include"], ["MQL5/Libraries", "Libraries"], ["MQL5/Files", "Files"], ["Profiles", "Profiles"], ["Templates", "Templates"], ["Config", "Config"]].map(([destination, label]) => <button key={destination} type="button" disabled={offline} onClick={() => void browse(destination!)}>{label}</button>)}
+      {[["MQL5/Experts", "Experts"], ["MQL5/Indicators", "Indicators"], ["MQL5/Include", "Include"], ["MQL5/Libraries", "Libraries"], ["MQL5/Files", "Files"], ["MQL5/Presets", "Presets"], ["MQL5/Profiles/Charts", "Profiles"], ["MQL5/Profiles/Templates", "Templates"], ["Config", "Config"]].map(([destination, label]) => <button key={destination} type="button" disabled={offline} onClick={() => void browse(destination!)}>{label}</button>)}
     </div>
     <nav className="breadcrumbs" aria-label="Destination breadcrumbs">
       <button type="button" disabled={offline || !listing || listing.parent === null} onClick={() => listing && void browse(listing.parent!)} aria-label="Parent folder"><ArrowUp size={15} /></button>
@@ -132,7 +132,7 @@ export function FilesPanel({ active, offline, transferBlocked, refreshKey, onTra
       }}>
       <h3>Transfer to this destination</h3>
       <p className="technical-path transfer-target">MT5 / {listing?.path || "data folder"}</p>
-      <p className="upload-note">Drop files or folders here, or focus this box and paste files with Ctrl/Cmd+V, to stage and open Import review. Folder drops preserve the selected folder name.</p>
+      <p className="upload-note">Drop files or folders here, or focus this box and paste files with Ctrl/Cmd+V, to stage and open Transfers review. Folder drops preserve the selected folder name.</p>
       <label>Choose files<input className="file-input" type="file" multiple disabled={Boolean(transferBlocked) || readingDrop || offline} onChange={(event) => { setSelection(folderFiles(event.target.files ?? [])); setMessage(undefined); event.target.value = ""; }} /></label>
       <label>Choose folder<input className="file-input" type="file" multiple {...{ webkitdirectory: "" }} disabled={Boolean(transferBlocked) || readingDrop || offline} onChange={(event) => { setSelection(folderFiles(event.target.files ?? [])); setMessage(undefined); event.target.value = ""; }} /></label>
       <p className="upload-note">{readingDrop ? "Reading dropped folder…" : `${selection.length} files selected. Selection alone does not upload.`} If directory drop or paste is unsupported, use Choose folder.</p>
@@ -141,7 +141,7 @@ export function FilesPanel({ active, offline, transferBlocked, refreshKey, onTra
       {selection.length > 0 && <button type="button" disabled={readingDrop} onClick={() => setSelection([])}>Clear local selection</button>}
     </div>
     {blocked && <p className="upload-note">{blocked}</p>}
-    {transferBlocked && <button type="button" onClick={onReview}>Open Import review</button>}
+    {transferBlocked && <button type="button" onClick={onReview}>Open Transfers review</button>}
     {message && <p className="note" role="status">{message}</p>}
   </section>;
 }

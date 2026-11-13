@@ -1,6 +1,6 @@
 # MT5 Dockerized
 
-Current source version: `3.0.1`.
+Current source version: `3.1.0`.
 
 This repo runs MetaTrader 5 from Docker. The current preferred setup is the
 Linux/Wine container in `linux/`: it auto-installs MT5 unattended on first boot,
@@ -23,10 +23,21 @@ fallback when auto-install is disabled or fails.*
 
 ## Control Room
 
-The UI uses a compact command bar and navigation rail, with separate Terminal,
-EA journal and unverified Heartbeat signals. Files, Clipboard, Import, Session
-and Paths open beside the desktop; switching tools does not reconnect noVNC or
-discard a staged import. Activity is collapsed until needed.
+The UI uses a compact command bar and Desktop, Files and Session navigation.
+Files groups browsing and transfer review together. Clipboard stays one action
+away in the desktop toolbar; diagnostics holds detailed EA/heartbeat evidence
+and paths. Switching tools does not reconnect noVNC or discard a staged transfer.
+Activity is collapsed until needed. Full screen requests real browser fullscreen,
+with an explicitly labelled expanded-view fallback if the browser denies it.
+
+In **Session**, choose **Restore last session** or save a **Custom startup** for
+the next launch, including configured auto-launch on container boot. Custom startup selects either an existing multi-EA
+profile or one chart/EA with an optional .set preset. Save never restarts MT5 or
+changes an active attachment. It does not enable trading/DLL/WebRequest permissions.
+Saving replaces any legacy container-managed startup policy, which otherwise
+retains its opt-in permission-changing behaviour. The generated [StartUp] preview
+contains no account passwords. VNC remains the
+desktop transport; no alternative backend has been installed.
 
 Use **Files** to browse the active MT5 data folder, paste a destination path and
 stage files or folders there. Use **Clipboard** to send text to the X11/Wine

@@ -164,12 +164,14 @@ configured via `MT5_DATA_DIR`.
 
 ### Control Room files and clipboard
 
-The desktop stays mounted while you switch contextual drawers. The command bar
-shows terminal process state, configured-EA journal evidence and an explicitly
-unverified heartbeat separately. Stop and Restart ask for confirmation; reloading
-the desktop view does not restart MT5. Focus hides tools without disconnecting
-the desktop. Scaling and remote keyboard controls remain inside noVNC, or use
-**New tab** for its full interface. Activity is collapsed by default.
+The desktop stays mounted while you switch Desktop, Files and Session. The command
+bar shows terminal process state and configured-EA journal evidence separately;
+Diagnostics holds heartbeat limitations and technical paths. Stop and Restart ask
+for confirmation; reloading the desktop view does not restart MT5. **Full screen**
+requests browser fullscreen, with an explicitly labelled expanded-view fallback
+if unavailable or denied. Escape exits either view. Scaling and remote keyboard
+controls remain inside noVNC, or use **New tab** for its full interface. Activity
+is collapsed by default.
 
 **Files** browses only the active MT5 data folder. Paste a relative destination
 such as `MQL5/Experts/MyEA`, or that folder's absolute Linux/Windows path. Folder
@@ -179,13 +181,37 @@ locations are browse-only; this is not a host filesystem or shell console.
 
 Choose files/folders, drop them or paste file data when the browser exposes it.
 Selection alone does not upload; **Stage to destination & review**, an explicit
-drop or file paste stages the transfer and opens Import. The pasted folder name
+drop or file paste stages the transfer and opens Files > Transfers. The pasted folder name
 is retained below the chosen destination. If the browser only provides path text,
 use Choose folder instead: a path pasted from your computer cannot grant the
 browser filesystem access. Config destinations still require explicit account
 restore; account protection, checksum, conflict, backup and stopped-terminal
 checks are unchanged. Existing staged imports must be reviewed or cancelled
 before starting another transfer.
+
+**Session** selects the next-launch policy. Restore last session is the default.
+Custom startup selects either an existing MT5 profile (for multiple charts/EAs)
+or one exact broker symbol, timeframe and optional compiled EA/preset. These are
+alternatives, not two overlapping autoload mechanisms. The chosen compiled EA,
+preset and profile are validated as existing, confined, non-symlink paths.
+Custom startup applies deliberately on each launch; use Restore to follow manual
+chart changes instead. No broker password or trading-permission field is exposed.
+Settings are private at `/data/control-room/startup.json`. The generated INI
+preview omits account data; the actual launch copy is private. Save never restarts
+MT5, attaches a program or changes the running terminal's reported mode. Saved
+Control Room settings override environment startup settings only on the next
+launch, including configured auto-launch on boot. Launching an already-running
+terminal is idempotent and never restarts it to apply settings. Corrupt saved settings fail visibly on a cold launch instead of silently
+falling back to old autoload. Legacy native autoload is backed up and removed
+before a cold launch, not hot-edited while MT5 owns its configuration.
+If no Control Room choice has been saved, explicit legacy managed environment
+configuration keeps its existing permission-changing behaviour. Session warns
+about this and distinguishes its preview of a saved Control Room policy from the
+currently effective container policy. Startup choices and legacy-removal status
+refresh when Session opens and after file/runtime changes, preserving unsaved
+form edits. Files shortcuts use `MQL5/Profiles/Charts` and `MQL5/Presets`, matching
+the native startup paths; older root-level folders remain manually browseable
+but are not silently moved or treated as active MT5 profiles.
 
 **Clipboard** is a manual text bridge, not a file clipboard. Send updates the
 desktop's X11 CLIPBOARD selection (Wine maps it to Windows); click in MT5 and use
@@ -489,6 +515,8 @@ POST /api/mt5/imports/recover
 POST /api/mt5/expert/acknowledge-removals
 GET  /api/mt5/files?path=<relative-or-active-data-folder-path>
 GET  /api/desktop/clipboard
+GET  /api/mt5/startup
+POST /api/mt5/startup
 POST /api/desktop/clipboard/read
 POST /api/desktop/clipboard/write
 ```

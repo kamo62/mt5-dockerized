@@ -11,6 +11,7 @@ import {
   Play,
   RefreshCcw,
   RotateCcw,
+  ShieldCheck,
   Square,
   Terminal,
   Upload,
@@ -195,7 +196,7 @@ function DrawerSection({ name, title, description, active, onClose, children }: 
   name: Drawer; title: string; description: string; active?: Drawer; onClose: () => void; children: React.ReactNode;
 }) {
   return <section className="drawer-section" id={`drawer-${name}`} hidden={active !== name} aria-labelledby={`heading-${name}`}>
-    <header className="drawer-heading"><div><h2 id={`heading-${name}`}>{title}</h2><p>{description}</p></div><button type="button" className="icon-button" aria-label={`Close ${title}`} onClick={onClose}><X size={17} /></button></header>
+    <header className="drawer-heading"><div><h2 id={`heading-${name}`} tabIndex={-1}>{title}</h2><p>{description}</p></div><button type="button" className="icon-button" aria-label={`Close ${title}`} onClick={onClose}><X size={17} /></button></header>
     {children}
   </section>;
 }
@@ -243,6 +244,10 @@ function App() {
     },
     [status.logs],
   );
+
+  useEffect(() => {
+    if (drawer) document.getElementById(`heading-${drawer}`)?.focus();
+  }, [drawer]);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (refreshing.current || actionInFlight.current) return;
@@ -327,7 +332,10 @@ function App() {
       if (active) setExpandedDesktop(false);
     };
     const exitExpandedOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && expandedDesktop && !document.fullscreenElement) setExpandedDesktop(false);
+      if (event.key === "Escape" && expandedDesktop && !document.fullscreenElement) {
+        setExpandedDesktop(false);
+        setFullscreenMessage(undefined);
+      }
     };
     document.addEventListener("fullscreenchange", updateFullscreen);
     document.addEventListener("keydown", exitExpandedOnEscape);
@@ -388,6 +396,7 @@ function App() {
   }
 
   function leaveFullscreenForTool() {
+    setFullscreenMessage(undefined);
     if (document.fullscreenElement === desktopPanelRef.current) {
       void document.exitFullscreen().catch(() => setFullscreenMessage("Unable to leave browser fullscreen."));
     }
@@ -448,7 +457,7 @@ function App() {
   const canLaunch = status.installed && status.mt5 !== "running" && !commandBusy && importState.ready && !importState.recoveryRequired;
   const canStop = status.mt5 === "running" && !commandBusy;
   const canRestart = status.installed && !commandBusy && importState.ready && !importState.recoveryRequired;
-  const transferBlocked = !importState.ready ? "Checking import status. Open Import to retry if this persists." : importState.active ? "An import is already staged. Review or cancel it before starting another transfer." : importState.recoveryRequired ? "Recover the interrupted import before transferring files." : importState.busy || transfer ? "An import operation is in progress." : busy || uploadingExperts ? "Wait for the current terminal or upload operation." : unavailable || !status.installed ? "The installed terminal and control server must be available." : undefined;
+  const transferBlocked = !importState.ready ? "Checking transfer status. Open Files > Transfers to retry if this persists." : importState.active ? "An import is already staged. Review or cancel it before starting another transfer." : importState.recoveryRequired ? "Recover the interrupted import before transferring files." : importState.busy || transfer ? "An import operation is in progress." : busy || uploadingExperts ? "Wait for the current terminal or upload operation." : unavailable || !status.installed ? "The installed terminal and control server must be available." : undefined;
   const expertLabel = (!hasStatus ? "Awaiting status" : status.expert?.state === "loaded" ? "Attachment recorded" : status.expert?.state === "removed" ? "Detached" : status.expert?.state === "failed" ? "Initialisation failed" : "Unverified") + (offline ? " (stale)" : "");
   const expertTone = offline ? "neutral" : status.expert?.state === "failed" ? "bad" : status.expert?.state === "removed" ? "warn" : status.expert?.state === "loaded" ? "good" : "neutral";
   const terminalLabel = (!hasStatus ? "Awaiting status" : stateLabel(status)) + (offline ? " (stale)" : "");
@@ -524,7 +533,7 @@ function App() {
           <div className="primary-nav">
             <button type="button" className="nav-button" aria-current={!drawer || drawer === "clipboard" ? "page" : undefined} aria-controls="desktop-content" onClick={() => setDrawer(undefined)}><Monitor size={17} aria-hidden="true" /><span>Desktop</span></button>
             <button type="button" className="nav-button" aria-current={drawer === "files" ? "page" : undefined} aria-controls="drawer-files" aria-expanded={drawer === "files"} aria-label={`Files${importState.active || importState.recoveryRequired || transfer ? " (transfers need attention)" : ""}`} onClick={() => openDrawer("files")}><Folder size={17} aria-hidden="true" /><span>Files</span>{(importState.active || importState.recoveryRequired || transfer) && <i className="nav-badge" aria-hidden="true" />}</button>
-            <button type="button" className="nav-button" aria-current={drawer === "session" ? "page" : undefined} aria-controls="drawer-session" aria-expanded={drawer === "session"} onClick={() => openDrawer("session")}><span>Session</span></button>
+            <button type="button" className="nav-button" aria-current={drawer === "session" ? "page" : undefined} aria-controls="drawer-session" aria-expanded={drawer === "session"} onClick={() => openDrawer("session")}><ShieldCheck size={17} aria-hidden="true" /><span>Session</span></button>
           </div>
           <div className="secondary-nav"><button type="button" className="nav-secondary-button" aria-pressed={drawer === "diagnostics"} aria-controls="drawer-diagnostics" aria-expanded={drawer === "diagnostics"} onClick={() => openDrawer("diagnostics")}><Activity size={15} aria-hidden="true" />Diagnostics</button></div>
         </nav>
@@ -589,7 +598,7 @@ function App() {
                   setFilesTab(next);
                   document.getElementById(`files-${next}-tab`)?.focus();
                 }}>Browse</button>
-                <button id="files-transfers-tab" type="button" role="tab" aria-selected={filesTab === "transfers"} aria-controls="files-transfers-panel" tabIndex={filesTab === "transfers" ? 0 : -1} onClick={() => setFilesTab("transfers")} onKeyDown={(event) => {
+                <button id="files-transfers-tab" type="button" role="tab" aria-selected={filesTab === "transfers"} aria-controls="files-transfers-panel" aria-label={`Transfers${importState.active || importState.recoveryRequired || transfer ? ", items need attention" : ""}`} tabIndex={filesTab === "transfers" ? 0 : -1} onClick={() => setFilesTab("transfers")} onKeyDown={(event) => {
                   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
                   event.preventDefault();
                   const next = event.key === "Home" ? "browse" : event.key === "End" ? "transfers" : filesTab === "browse" ? "transfers" : "browse";
@@ -620,7 +629,7 @@ function App() {
             <DrawerSection name="clipboard" title="Text clipboard" description="Move text between your device and the MT5 desktop." active={drawer} onClose={closeDrawer}><ClipboardPanel offline={offline} /></DrawerSection>
 
             <DrawerSection name="session" title="Startup" description="Choose what MT5 should open on its next launch." active={drawer} onClose={closeDrawer}>
-              <StartupPanel offline={offline} activeMode={status.mt5 === "running" ? status.sessionMode : undefined} />
+              <StartupPanel offline={offline} activeMode={status.mt5 === "running" ? status.sessionMode : undefined} active={drawer === "session"} refreshKey={`${filesRefresh}:${status.installed}:${status.mt5}`} />
             </DrawerSection>
 
           </aside>

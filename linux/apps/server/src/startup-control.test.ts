@@ -1,0 +1,53 @@
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "bun:test";
+import { RESTORE_SETTINGS, StartupControlStore } from "./startup-control";
+import { writeCustomStartupFile } from "./mt5-startup-config";
+
+test("startup save is private, validates files and cannot inject settings or expose account data", async () => {
+  const data = await mkdtemp(join(tmpdir(), "mt5-startup-control-"));
+  const prefix = join(data, "wine-prefix/.mt5");
+  const root = join(prefix, "drive_c/Program Files/MetaTrader 5");
+  try {
+    for (const dir of ["Config", "MQL5/Experts/Folder", "MQL5/Presets", "MQL5/Profiles/Charts/Saved"]) await mkdir(join(root, dir), { recursive: true });
+    await writeFile(join(root, "terminal64.exe"), "fixture");
+    await writeFile(join(root, "MQL5/Experts/Folder/Example.ex5"), "fixture");
+    await writeFile(join(root, "MQL5/Presets/Example.set"), "private-fixture-inputs");
+    const native = Buffer.from("\ufeff[Common]\r\nLogin=private-fixture-login\r\nPassword=private-fixture-password\r\n[Experts]\r\nEnabled=0\r\nAllowLiveTrading=0\r\nAllowDllImport=0\r\nWebRequest=0\r\n[StartUp]\r\nExpert=OldEA\r\nSymbol=OldSymbol\r\n", "utf16le");
+    await writeFile(join(root, "Config/common.ini"), native);
+    const store = new StartupControlStore(data, prefix);
+    const initial = await store.describe(RESTORE_SETTINGS);
+    expect(initial.source).toBe("environment");
+    expect(initial.legacyStartup).toBe(true);
+    expect(initial.choices.experts).toEqual(["Folder/Example"]);
+    expect(initial.choices.profiles).toEqual(["Saved"]);
+    expect(initial.preview).not.toContain("private-fixture");
+    const custom = { ...RESTORE_SETTINGS, mode: "custom" as const, expert: "Folder/Example.ex5", symbol: "XAUUSD.i", period: "M5" as const, preset: "Example.set" };
+    const saved = await store.save(custom);
+    expect(saved.expert).toBe("Folder/Example");
+    expect((await stat(join(data, "control-room/startup.json"))).mode & 0o777).toBe(0o600);
+    expect((await readFile(join(root, "Config/common.ini"))).equals(native)).toBe(true);
+    expect((await store.describe(RESTORE_SETTINGS)).preview).not.toContain("private-fixture");
+    await expect(store.save({ ...custom, symbol: "XAUUSD\n[Experts]" })).rejects.toThrow("Invalid startup");
+    await expect(store.save({ ...custom, expert: "../../Other" })).rejects.toThrow("unsafe");
+    await expect(store.save({ ...custom, expert: "Missing" })).rejects.toThrow("missing");
+    await expect(store.save({ ...custom, profile: "Saved" })).rejects.toThrow("either");
+    await symlink(join(root, "MQL5/Experts/Folder/Example.ex5"), join(root, "MQL5/Experts/Link.ex5"));
+    await expect(store.save({ ...custom, expert: "Link" })).rejects.toThrow("symbolic link");
+    const file = await writeCustomStartupFile(prefix, join(data, "cache"), saved);
+    const generated = (await readFile(file.path)).toString("utf16le");
+    expect(generated).toContain("Expert=Folder\\Example");
+    expect(generated).toContain("Symbol=XAUUSD.i");
+    expect(generated).toContain("Period=M5");
+    expect(generated).toContain("ExpertParameters=Example.set");
+    expect(generated).toContain("AllowLiveTrading=0");
+    expect(generated).toContain("AllowDllImport=0");
+    expect(generated).toContain("WebRequest=0");
+    expect(generated).not.toContain("OldEA");
+    expect((await stat(file.path)).mode & 0o777).toBe(0o600);
+    await store.save({ ...RESTORE_SETTINGS, mode: "custom", profile: "Saved" });
+    await store.save(RESTORE_SETTINGS);
+    expect((await new StartupControlStore(data, prefix).load())?.mode).toBe("restore");
+  } finally { await rm(data, { recursive: true, force: true }); }
+});

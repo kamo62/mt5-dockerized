@@ -334,3 +334,48 @@ test("new MQL5 additions keep MT5 running while replacements require an explicit
     expect(readFileSync(join(terminal, "MQL5/Experts/New.ex5"), "utf8")).toBe("new");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("saving startup does not restart a running terminal and is used only by a cold launch", async () => {
+  const root = join(process.env.TMPDIR ?? "/tmp", `mt5-startup-save-${crypto.randomUUID()}`);
+  const paths = createRuntimePaths(root);
+  const terminal = join(paths.winePrefix, "drive_c/Program Files/MetaTrader 5");
+  const previous = { enabled: process.env.MT5_STARTUP_CONFIG, expert: process.env.MT5_STARTUP_EXPERT };
+  try {
+    process.env.MT5_STARTUP_CONFIG = "true";
+    process.env.MT5_STARTUP_EXPERT = "OldEnvironmentEA";
+    mkdirSync(join(terminal, "Config"), { recursive: true });
+    mkdirSync(join(terminal, "MQL5/Experts"), { recursive: true });
+    writeFileSync(join(terminal, "terminal64.exe"), "fixture");
+    writeFileSync(join(terminal, "MQL5/Experts/Example.ex5"), "fixture");
+    writeFileSync(join(terminal, "Config/common.ini"), "[Common]\nLogin=fixture\n[Experts]\nEnabled=0\nAllowLiveTrading=0\n");
+    const manager = new Mt5ProcessManager({ paths, autoInstall: false, autoLaunch: false });
+    const internal = manager as unknown as { mt5State: string; isMt5Running(): Promise<boolean>; runOneShot(): Promise<void>; startProcess(name: string, command: string[]): void };
+    internal.mt5State = "running";
+    internal.isMt5Running = async () => true;
+    internal.runOneShot = async () => { throw new Error("Save must not run Wine."); };
+    internal.startProcess = () => { throw new Error("Save must not start a terminal."); };
+    const settings = { mode: "custom", expert: "Example", symbol: "XAUUSD.i", period: "M5", preset: "", profile: "" };
+    expect((await manager.saveStartupSettings(settings)).settings.mode).toBe("custom");
+    expect(manager.getState().sessionMode).toBe("restore");
+    expect((await manager.launch()).mt5).toBe("running");
+    writeFileSync(join(paths.dataDir, "control-room/startup.json"), "not valid JSON");
+    expect((await manager.launch()).mt5).toBe("running");
+    await manager.saveStartupSettings(settings);
+    internal.mt5State = "idle";
+    internal.isMt5Running = async () => false;
+    internal.runOneShot = async () => undefined;
+    let command: string[] = [];
+    internal.startProcess = (_name, cmd) => { command = cmd; };
+    expect((await manager.launch()).sessionMode).toBe("managed");
+    expect(command.some((arg) => arg.includes("control-room-startup.ini"))).toBe(true);
+    expect(readFileSync(join(paths.cacheDir, "control-room-startup.ini"), "utf16le")).toContain("Symbol=XAUUSD.i");
+    await manager.saveStartupSettings({ ...settings, mode: "restore" });
+    expect((await manager.launch()).sessionMode).toBe("restore");
+    expect(manager.getState().expert).toBeUndefined();
+  } finally {
+    for (const [key, value] of [["MT5_STARTUP_CONFIG", previous.enabled], ["MT5_STARTUP_EXPERT", previous.expert]]) {
+      if (value === undefined) delete process.env[key!]; else process.env[key!] = value;
+    }
+    rmSync(root, { recursive: true, force: true });
+  }
+});

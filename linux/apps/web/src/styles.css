@@ -91,11 +91,12 @@ summary { cursor: pointer; font-size: 12px; font-weight: 600; padding: 6px 0; }
 .nav-button[aria-current="page"], .nav-secondary-button[aria-pressed="true"] { background: #2c3545; border-color: #53698d; color: var(--text); }
 .nav-button:focus-visible, .nav-secondary-button:focus-visible { z-index: 1; }
 .nav-badge { display: inline-block; width: 7px; height: 7px; margin-left: 2px; border-radius: 50%; background: var(--warning); }
-.stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; gap: 8px; }
+.stage { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-width: 0; min-height: 0; gap: 8px; }
 .stage.with-drawer { grid-template-columns: minmax(0, 1fr) clamp(340px, 30vw, 410px); }
 .desktop-column { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
 .desktop-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
 .desktop-panel:fullscreen { width: 100vw; height: 100vh; height: 100dvh; border: 0; border-radius: 0; }
+.desktop-panel:fullscreen .desktop-surface { min-height: 0; }
 .desktop-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--chrome); flex-shrink: 0; }
 .desktop-toolbar h2 { display: flex; align-items: center; gap: 7px; font-size: 12px; }
 .desktop-toolbar h2 svg { color: var(--muted); }
@@ -158,6 +159,7 @@ summary { cursor: pointer; font-size: 12px; font-weight: 600; padding: 6px 0; }
 .files-tab-panel { min-width: 0; }
 .startup-panel { gap: 12px; }
 .startup-options { display: grid; gap: 7px; }
+.startup-editor-fieldset { display: grid; gap: 14px; min-width: 0; border: 0; padding: 0; margin: 0; }
 .startup-option { display: flex; align-items: flex-start; gap: 9px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--chrome); cursor: pointer; }
 .startup-option:has(input:checked) { border-color: #53698d; background: #242d3b; }
 .startup-option input { width: auto; margin-top: 2px; }
@@ -217,7 +219,7 @@ summary { cursor: pointer; font-size: 12px; font-weight: 600; padding: 6px 0; }
 .expanded-desktop .desktop-column { min-height: 0; height: 100%; gap: 0; }
 .expanded-desktop .desktop-panel { border: 0; border-radius: 0; }
 .expanded-desktop .error-strip { max-height: 96px; }
-.expanded-desktop > .error-strip { position: absolute; z-index: 2; top: 8px; left: 8px; right: 8px; box-shadow: 0 4px 18px #0008; }
+.expanded-desktop > .error-strip { position: static; flex-shrink: 0; border-radius: 0; box-shadow: none; }
 .spin { animation: spin 900ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 

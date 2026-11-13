@@ -13,8 +13,11 @@ export class ExpertLogMonitor {
 
   private constructor(private readonly root: string, name: string) {
     this.status = { name, state: "unverified" };
-    const escaped = name.replace(/\.ex5$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    this.event = new RegExp(`^(?:expert|initializing of)\\s+${escaped}(?=\\s|\\()(?:\\s*\\(([^)]*)\\))?`, "i");
+    const windowsName = name.replace(/\.ex5$/i, "").replace(/\//g, "\\");
+    // MT5 can report a nested expert by its Windows path or just its basename.
+    const names = [...new Set([windowsName, windowsName.split("\\").at(-1)!])];
+    const escaped = names.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    this.event = new RegExp(`^(?:expert|initializing of)\\s+(?:${escaped})(?=\\s|\\()(?:\\s*\\(([^)]*)\\))?`, "i");
   }
 
   static async create(root: string, name: string, adopting = false): Promise<ExpertLogMonitor> {
